@@ -46,7 +46,10 @@ hyprland_shm_profile="${HYPRLAND_SHM_PROFILE:-0}"
 hyprland_gl_dmabuf_export="${HYPRLAND_GL_DMABUF_EXPORT:-1}"
 # Optional staged X11 backend. The Android build derives its output cadence
 # from Termux:X11's active XRandR mode instead of Weston's fixed 60 Hz mode.
-weston_x11_module="${OMARCHY_WESTON_X11_MODULE:-$script_dir/../opt/weston/lib/libweston-14/x11-backend.so}"
+# The bundled module is built against libweston-14, which does not match the
+# Weston-16 ABI shipped by Termux. Default to empty so weston uses its own
+# x11-backend.so from /usr/lib/libweston-16/.
+weston_x11_module="${OMARCHY_WESTON_X11_MODULE:-}"
 refresh_mhz="${OMARCHY_REFRESH_MHZ:-120000}"
 ui_scale="${OMARCHY_SCALE:-2}"
 share_mode="${OMARCHY_SHARE:-none}"

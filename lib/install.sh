@@ -2,6 +2,7 @@
 
 OA_INSTALL_TEMP=''
 OA_INSTALL_LOCK=''
+OA_BUNDLE_CACHE=''
 OA_CREATED_CONTAINER=false
 OA_CREATED_PREFIX=false
 
@@ -61,15 +62,52 @@ release_field() {
 }
 
 download_release_bundle() {
-  local url asset target
+  local url asset target cached cached_sum expected_sum
   url="$(release_field url)" || die 'Release lock has no download URL.'
   asset="$(release_field asset)" || die 'Release lock has no asset name.'
+  expected_sum="$(release_field sha256)" || die 'Release lock has no SHA-256 checksum.'
+  [[ "$expected_sum" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
   target="$OA_INSTALL_TEMP/$asset"
 
-  info "Downloading verified stable ARM64 release"
-  if ! curl --fail --location --retry 3 --output "$target" "$url"; then
+  # Reuse a previously verified bundle when the cache already holds one matching
+  # the release manifest. Caching avoids re-downloading the ~1.1 GB artifact on
+  # retries or when the installer is re-run against the same release.
+  mkdir -p "$OA_BUNDLE_CACHE"
+  cached="$OA_BUNDLE_CACHE/$asset"
+  if [[ -f "$cached" ]]; then
+    cached_sum="$(sha256sum "$cached" | awk '{print $1}')"
+    if [[ "$cached_sum" == "$expected_sum" ]]; then
+      # All log output is sent to stderr so it does not pollute the function's
+      # data return value captured by command substitution.
+      info "Reusing verified release bundle from cache" >&2
+      cp -f "$cached" "$target"
+      printf '%s' "$target"
+      return 0
+    fi
+    info "Cached bundle is stale; redownloading" >&2
+    rm -f "$cached"
+  fi
+
+  info "Downloading verified stable ARM64 release" >&2
+  # --continue-at - resumes any partial download left from a previous run.
+  # We stage the download into the persistent cache directory so a failed or
+  # interrupted transfer can be resumed on the next invocation.
+  local partial="$OA_BUNDLE_CACHE/${asset}.partial"
+  if [[ ! -f "$target" && -f "$partial" ]]; then
+    cp -f "$partial" "$target"
+  fi
+  if ! curl --fail --location --retry 3 --retry-delay 5 \
+      --continue-at - --output "$target" "$url"; then
+    [[ -f "$target" ]] && cp -f "$target" "$partial"
     die 'Release download failed. Check the network connection or pass a local file with --bundle PATH.'
   fi
+  actual_sum="$(sha256sum "$target" | awk '{print $1}')"
+  if [[ "$actual_sum" != "$expected_sum" ]]; then
+    [[ -f "$target" ]] && cp -f "$target" "$partial"
+    die "Downloaded bundle checksum mismatch: expected $expected_sum, got $actual_sum"
+  fi
+  rm -f "$partial"
+  cp -f "$target" "$cached"
   printf '%s' "$target"
 }
 
@@ -262,6 +300,8 @@ perform_install() {
   mkdir -p "$(dirname -- "$OA_PREFIX")"
   mkdir "$OA_INSTALL_LOCK" 2>/dev/null || die "Another installer owns the lock: $OA_INSTALL_LOCK"
   OA_INSTALL_TEMP="$(mktemp -d "${PREFIX:?}/tmp/omarchy-android-install.XXXXXX")"
+  OA_BUNDLE_CACHE="${PREFIX:?}/var/cache/omarchy-android/bundle"
+  mkdir -p "$OA_BUNDLE_CACHE"
   trap cleanup_install EXIT
 
   if [[ -n "$OA_BUNDLE" ]]; then
