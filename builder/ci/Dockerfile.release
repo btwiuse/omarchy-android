@@ -68,8 +68,17 @@ RUN sed -i \
     && pacman-key --populate archlinuxarm \
     && pacman -Syu --noconfirm
 
-# Project source for the assembly scripts.
-COPY manifest patches builder licenses /opt/src/
+# Project source for the assembly scripts. fetch-sources.sh and
+# verify-patches.sh compute PROJECT_ROOT from their own location and
+# source lib/common.sh and lib/manifest.sh from there, so each directory
+# has to be copied with its name preserved (COPY on a directory copies
+# its CONTENTS, not the directory itself).
+COPY manifest /opt/src/manifest/
+COPY patches /opt/src/patches/
+COPY builder /opt/src/builder/
+COPY scripts /opt/src/scripts/
+COPY licenses /opt/src/licenses/
+COPY lib /opt/src/lib/
 
 # Install the runtime package closure: chromium, quickshell, foot, dbus,
 # the curated desktop environment, plus the libraries Mesa, Hyprland and
