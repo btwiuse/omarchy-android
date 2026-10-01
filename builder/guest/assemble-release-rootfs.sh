@@ -138,10 +138,13 @@ rm -rf \
 : > /etc/machine-id
 
 cat > /etc/omarchy-android-release <<EOF
-OMARCHY_ANDROID_FORMAT=1
+OMARCHY_ANDROID_FORMAT=2
 OMARCHY_ANDROID_ARCH=aarch64
+OMARCHY_ANDROID_VERSION=\${OMARCHY_VERSION:-edge}
 OMARCHY_ANDROID_UPSTREAM_REVISION=$(awk -F '|' '$1=="omarchy" {print $4}' "$project_root/manifest/components.lock")
 OMARCHY_ANDROID_PATCHES_LOCK_SHA256=$(sha256sum "$project_root/manifest/patches.lock" | awk '{print $1}')
+OMARCHY_ANDROID_PACKAGES_LOCK_SHA256=$(sha256sum "$project_root/manifest/packages-aarch64-edge.lock" | awk '{print $1}')
+OMARCHY_ANDROID_HOST_BUNDLE_SHA256=$(sha256sum "$project_root/manifest/host-artifacts.lock" | awk '{print $1}')
 EOF
 
 printf 'Clean Omarchy Android release rootfs assembled.\n'

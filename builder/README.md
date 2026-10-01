@@ -26,8 +26,8 @@ Run `host/prepare-guest-builder.sh` from Termux to create the disposable,
 native-ARM64 Arch builder and install the dependencies in `guest/packages.txt`.
 The bootstrap also applies the pacman 7 settings required under PRoot; it does
 not modify the user's Omarchy container. The source image and its primary OCI
-layer digest are pinned to `danhunsaker/archlinuxarm:20260517`; the builder
-refuses a mismatched base.
+layer digest are pinned to `ghcr.io/btwiuse/arch:base` in `manifest/oci-images.lock`;
+the builder refuses a mismatched base.
 
 Then run `host/build-guest-graphics.sh`. It mounts only this project, the
 separate local forks, and the artifact destination into an isolated PRoot
@@ -41,35 +41,40 @@ builder therefore compiles and installs only the patched `x11-backend.so`
 module used through `WESTON_MODULE_MAP`; unrelated Weston backends, clients,
 and renderers are not release artifacts.
 
-`host/build-release.sh VERSION` assembles the sanitized rootfs, requires the
-exact `manifest/packages-aarch64-VERSION.lock` package closure, adds the project
-and Weston license texts, records component/patch/package checksums, and emits
-the outer bundle plus SHA-256 sidecar under `.work/releases/`.
+`host/build-release.sh VERSION` assembles a local OCI image of the sanitized
+rootfs using the same `builder/ci/Dockerfile.release` that CI uses (run via
+`proot-distro build`), requires the exact `manifest/packages-aarch64-VERSION.lock`
+package closure, builds the host payload from the patched Weston module and
+the two native helpers, and emits a local OCI image tarball plus a host
+payload tarball under `.work/releases/`. No host bind mounts or proot login
+into a disposable builder is required: the OCI build runs the entire release
+recipe inside an isolated proot session driven by the Dockerfile.
 
 ## GitHub Actions image rebuild
 
 `.github/workflows/build-image.yml` performs a clean, native ARM64 rebuild on
-GitHub's `ubuntu-24.04-arm` runner. It verifies the locked Arch Linux ARM OCI
-manifest, fetches only the pinned source revisions, reapplies the reviewed patch
-series, rebuilds Mesa/Aquamarine/Hyprland, assembles and privacy-audits the
-guest, and uploads these workflow artifacts:
+GitHub's `ubuntu-24.04-arm` runner. It verifies the locked OCI base image
+digest from `manifest/oci-images.lock`, fetches only the pinned source
+revisions, reapplies the reviewed patch series, rebuilds Mesa/Aquamarine/Hyprland
+inside `builder/ci/Dockerfile.release`, scrubs the result, pushes the OCI image
+to `ghcr.io`, and uploads these workflow artifacts:
 
-- the compressed ARM64 rootfs image;
+- the OCI image-layout tarball produced by `docker save`;
 - its exact generated package inventory;
-- the image manifest and SHA-256 checksums; and
-- the rootfs member list used by the structural audit.
+- the OCI image manifest and SHA-256 checksums.
 
 The generated closure must exactly match
 `manifest/packages-aarch64-edge.lock`. If Arch Linux ARM changes, CI fails and
 uploads the newly resolved inventory as a small `package-drift-*` artifact for
 review; it never silently publishes a different image.
 
-Every push to `main` rebuilds the guest image. A semantic release tag such as
+Every push to `main` rebuilds the OCI image. A semantic release tag such as
 `v0.1.1` additionally downloads the checksum-pinned Android/Bionic host payload,
-assembles the complete installer bundle, publishes both the bundle and SHA-256
-sidecar as a GitHub Release, verifies GitHub's uploaded-asset digest, and then
-atomically updates `manifest/release.lock` on `main`. End users only download
-the resulting precompiled bundle; they do not run this build pipeline.
+assembles the host bundle, publishes the bundle and SHA-256 sidecar as a GitHub
+Release asset, verifies that the published OCI image is byte-identical to the
+one CI built by digest, and atomically updates `manifest/release.lock` on `main`.
+End users only pull the published OCI image and download the small host payload;
+they do not run this build pipeline.
 
 The host payload contains only the patched Weston module, two small Termux
 helpers, and their required license texts. It was extracted and byte-verified
