@@ -107,7 +107,8 @@ jobs:
               --platform linux/arm64 \
               --pull=false \
               --tag "$OCI_REFERENCE" \
-              --build-arg "PRECOMPILE_IMAGE=$PRECOMPILE_REFERENCE" \
+              --build-arg "ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64" \
+              --build-arg "PRECOMPILE_REFERENCE=$PRECOMPILE_REFERENCE" \
               --build-arg "HOST_PAYLOAD_DIR=$GITHUB_WORKSPACE/host-payload-staging" \
               --build-arg "VERSION=$VERSION" \
               --build-arg "OCI_MANIFEST_DIGEST=$PRECOMPILE_DIGEST" \

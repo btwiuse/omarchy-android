@@ -14,7 +14,7 @@ ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
 
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=linux/arm64 ${ARCHLINUXARM_BASE}
+FROM --platform=${TARGETPLATFORM} ${ARCHLINUXARM_BASE}
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 

@@ -34,7 +34,7 @@ ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000
 # an external build stage. Nothing compiles here; we mount in the published
 # :precompile as a volume-like context and harvest /opt/omarchy-android.
 # ----------------------------------------------------------------------------
-FROM --platform=linux/arm64 ${PRECOMPILE_REFERENCE} AS precompile
+FROM --platform=${TARGETPLATFORM} ${PRECOMPILE_REFERENCE} AS precompile
 
 # ----------------------------------------------------------------------------
 # Stage 2: build the released image FROM btwiuse/arch:base (the same base
@@ -44,7 +44,7 @@ FROM --platform=linux/arm64 ${PRECOMPILE_REFERENCE} AS precompile
 # assembly + theme generator, scrub, and stamp release metadata. The
 # compiled graphics artifact enters via COPY --from=precompile.
 # ----------------------------------------------------------------------------
-FROM --platform=linux/arm64 ${ARCHLINUXARM_BASE}
+FROM --platform=${TARGETPLATFORM} ${ARCHLINUXARM_BASE}
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
