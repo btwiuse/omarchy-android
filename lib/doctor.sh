@@ -68,6 +68,34 @@ run_doctor() {
     fi
   done
 
+  if has_command proot-distro; then
+    # proot-distro has no --version flag; --version is treated as an unknown
+    # command and exits non-zero. With inherit_errexit set, that fails the
+    # whole doctor. Read the version from the package manager instead.
+    proot_distro_version=""
+    if has_command pip && pip show proot-distro 2>/dev/null \
+       | sed -n 's/^Version: //p' | head -n1 | grep -q .; then
+      proot_distro_version="$(pip show proot-distro 2>/dev/null \
+        | sed -n 's/^Version: //p' | head -n1)"
+    fi
+    if [[ -z "$proot_distro_version" ]] && has_command dpkg; then
+      proot_distro_version="$(dpkg -s proot-distro 2>/dev/null \
+        | sed -n 's/^Version: //p' | head -n1)"
+    fi
+    if [[ -n "$proot_distro_version" ]]; then
+      if printf '%s\n' "$proot_distro_version" | sort -V -C \
+         && printf '%s\n%s\n' "0.7.0" "$proot_distro_version" | sort -V -C; then
+        doctor_check 'proot-distro OCI' PASS "$proot_distro_version"
+      else
+        doctor_check 'proot-distro OCI' WARN \
+          "$proot_distro_version is older than the minimum 0.7.0 required for OCI registry installs."
+      fi
+    else
+      doctor_check 'proot-distro OCI' WARN \
+        'unable to read proot-distro version; OCI registry installs may not work.'
+    fi
+  fi
+
   if [[ -e /dev/kgsl-3d0 ]]; then
     doctor_check GPU PASS '/dev/kgsl-3d0 (KGSL candidate)'
   else

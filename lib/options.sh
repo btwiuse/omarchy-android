@@ -11,6 +11,7 @@ OA_KEYBOARD=auto
 OA_SHARE=none
 OA_AUDIO=true
 OA_BUNDLE=''
+OA_HOST_BUNDLE=''
 OA_CONTAINER=omarchy-android
 OA_PREFIX="${HOME}/.local/share/omarchy-android"
 OA_DRY_RUN=false
@@ -36,7 +37,8 @@ Options:
   --keyboard LAYOUT       auto or an XKB layout such as us/fr (default: auto)
   --share MODE            none, termux, storage, or both (default: none)
   --audio / --no-audio    Enable or disable Android audio (default: enabled)
-  --bundle PATH           Use a local release bundle
+  --bundle PATH           Use a local guest image (OCI tarball for format=2, bundle tar for format=1)
+  --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
   --prefix PATH           Host runtime path
   --yes                   Accept non-destructive prompts
@@ -102,6 +104,11 @@ parse_options() {
         OA_BUNDLE="$(option_value --bundle "${1:-}")"
         ;;
       --bundle=*) OA_BUNDLE="${1#*=}" ;;
+      --host-bundle)
+        shift
+        OA_HOST_BUNDLE="$(option_value --host-bundle "${1:-}")"
+        ;;
+      --host-bundle=*) OA_HOST_BUNDLE="${1#*=}" ;;
       --name)
         shift
         OA_CONTAINER="$(option_value --name "${1:-}")"
@@ -164,6 +171,7 @@ Resolved configuration:
   sharing:      $OA_SHARE
   audio:        $OA_AUDIO
   bundle:       ${OA_BUNDLE:-download verified release}
+  host bundle:  ${OA_HOST_BUNDLE:-download verified host payload}
   container:    $OA_CONTAINER
   prefix:       $OA_PREFIX
   dry run:      $OA_DRY_RUN

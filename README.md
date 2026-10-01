@@ -23,7 +23,8 @@ Termux:X11, PRoot Distro, Weston, and a patched native ARM64 Hyprland stack.
 
 - An ARM64 Android phone or tablet.
 - At least 8 GB of free storage during installation. The installed guest uses
-  approximately 4 GB; the verified download is approximately 1.1 GB.
+  approximately 4 GB; the host payload download is a few MB, and the OCI
+  guest image is cached locally on subsequent installs.
 - An internet connection in Termux.
 - Direct KGSL/Turnip acceleration requires a compatible Qualcomm Adreno GPU.
   The accelerated path was validated on Adreno 840; other devices
@@ -78,12 +79,13 @@ repeat step 2 and run the check again.
 ./install.sh --yes
 ```
 
-The installer downloads a checksum-verified ARM64 image, creates a new
-`omarchy-android` PRoot container, and leaves existing containers alone. Keep
-Termux open while it finishes.
+The installer downloads a digest-pinned ARM64 OCI image and a small host
+payload archive, verifies both before use, creates a new `omarchy-android`
+PRoot container, and leaves existing containers alone. Keep Termux open
+while it finishes.
 
-Everything is precompiled. The phone downloads and verifies the release
-bundle; it does not compile Mesa, Hyprland, Weston, or Omarchy.
+Everything is precompiled. The phone downloads and verifies the release;
+it does not compile Mesa, Hyprland, Weston, or Omarchy.
 
 ### 6. Start the desktop
 

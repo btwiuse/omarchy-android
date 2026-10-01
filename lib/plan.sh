@@ -14,12 +14,12 @@ build_install_plan() {
   plan_add "Verify Android's Disable child process restrictions setting; use the native safety guard only for an explicitly accepted fallback"
 
   if [[ -n "$OA_BUNDLE" ]]; then
-    plan_add "Verify the local release bundle and checksums: $OA_BUNDLE"
+    plan_add "Verify the local guest image and host payload: $OA_BUNDLE"
   else
-    plan_add "Download and verify the stable ARM64 release manifest and bundle"
+    plan_add "Download and verify the host payload archive and OCI image digest"
   fi
 
-  plan_add "Create a new isolated PRoot container named $OA_CONTAINER from the checksum-verified Arch Linux ARM rootfs"
+  plan_add "Create a new isolated PRoot container named $OA_CONTAINER from the digest-pinned OCI release image"
   plan_add "Install the pinned Omarchy runtime and Android compatibility packages inside the new container"
   plan_add "Install host start, stop, status, and Hyprland-control commands under $OA_PREFIX/bin"
   plan_add "Configure display=$OA_RESOLUTION refresh=$OA_REFRESH scale=$OA_SCALE keyboard=$OA_KEYBOARD gpu=$OA_GPU audio=$OA_AUDIO"

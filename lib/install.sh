@@ -55,30 +55,131 @@ install_host_dependencies() {
   done
 }
 
-release_field() {
+release_lock_field() {
   local key="$1"
   awk -F '=' -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found=1; exit} END {if (!found) exit 1}' \
     "$PROJECT_ROOT/manifest/release.lock"
 }
 
-download_release_bundle() {
-  local url asset target cached cached_sum expected_sum
-  url="$(release_field url)" || die 'Release lock has no download URL.'
-  asset="$(release_field asset)" || die 'Release lock has no asset name.'
-  expected_sum="$(release_field sha256)" || die 'Release lock has no SHA-256 checksum.'
-  [[ "$expected_sum" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
-  target="$OA_INSTALL_TEMP/$asset"
+release_lock_format() {
+  release_lock_field format 2>/dev/null || {
+    printf '%s\n' 1
+    return 0
+  }
+}
 
-  # Reuse a previously verified bundle when the cache already holds one matching
-  # the release manifest. Caching avoids re-downloading the ~1.1 GB artifact on
-  # retries or when the installer is re-run against the same release.
+download_with_resume() {
+  local url="$1"
+  local target="$2"
+  local partial="${target}.partial"
+  if [[ ! -f "$target" && -f "$partial" ]]; then
+    cp -f "$partial" "$target"
+  fi
+  if ! curl --fail --location --retry 3 --retry-delay 5 \
+      --continue-at - --output "$target" "$url"; then
+    [[ -f "$target" ]] && cp -f "$target" "$partial"
+    return 1
+  fi
+  rm -f "$partial"
+}
+
+download_host_bundle() {
+  local lock_format lock_asset lock_url lock_sha cached cached_sum target local_bundle local_sha
+
+  lock_format="$(release_lock_format)"
+  if [[ "$lock_format" != "2" ]]; then
+    printf ''
+    return 1
+  fi
+
+  lock_asset="$(release_lock_field host_bundle_asset)" || die 'Release lock has no host_bundle_asset.'
+  lock_url="$(release_lock_field host_bundle_url)" || die 'Release lock has no host_bundle_url.'
+  lock_sha="$(release_lock_field host_bundle_sha256)" || die 'Release lock has no host_bundle_sha256.'
+  [[ "$lock_sha" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid host bundle SHA-256 checksum.'
+
   mkdir -p "$OA_BUNDLE_CACHE"
-  cached="$OA_BUNDLE_CACHE/$asset"
+  target="$OA_INSTALL_TEMP/$lock_asset"
+
+  if [[ -n "$OA_HOST_BUNDLE" ]]; then
+    local_bundle="$(cd -- "$(dirname -- "$OA_HOST_BUNDLE")" && pwd -P)/$(basename -- "$OA_HOST_BUNDLE")"
+    [[ -f "$local_bundle" ]] || die "Local host bundle does not exist: $local_bundle"
+    local_sha="$(sha256sum "$local_bundle" | awk '{print $1}')"
+    [[ "$local_sha" == "$lock_sha" ]] \
+      || die "Local host bundle checksum mismatch: expected $lock_sha, got $local_sha"
+    cp -f "$local_bundle" "$target"
+    printf '%s' "$target"
+    return 0
+  fi
+
+  cached="$OA_BUNDLE_CACHE/$lock_asset"
+
   if [[ -f "$cached" ]]; then
     cached_sum="$(sha256sum "$cached" | awk '{print $1}')"
-    if [[ "$cached_sum" == "$expected_sum" ]]; then
-      # All log output is sent to stderr so it does not pollute the function's
-      # data return value captured by command substitution.
+    if [[ "$cached_sum" == "$lock_sha" ]]; then
+      info "Reusing verified host payload from cache" >&2
+      cp -f "$cached" "$target"
+      printf '%s' "$target"
+      return 0
+    fi
+    info "Cached host payload is stale; redownloading" >&2
+    rm -f "$cached"
+  fi
+
+  info "Downloading verified host payload" >&2
+  if ! download_with_resume "$lock_url" "$target"; then
+    die 'Host payload download failed. Check the network connection or pass --host-bundle PATH.'
+  fi
+  actual_sum="$(sha256sum "$target" | awk '{print $1}')"
+  if [[ "$actual_sum" != "$lock_sha" ]]; then
+    die "Host payload checksum mismatch: expected $lock_sha, got $actual_sum"
+  fi
+  cp -f "$target" "$cached"
+  printf '%s' "$target"
+}
+
+fetch_release_rootfs() {
+  local oci_ref oci_digest cache_dir cache_record
+
+  oci_ref="$(release_lock_field oci_reference)" || die 'Release lock has no oci_reference.'
+  oci_digest="$(release_lock_field oci_manifest_digest)" || die 'Release lock has no oci_manifest_digest.'
+  [[ "$oci_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Invalid OCI manifest digest in release lock.'
+
+  cache_dir="${PREFIX:?}/var/cache/omarchy-android/oci"
+  cache_record="$cache_dir/$oci_ref"
+  if [[ -f "$cache_record" ]] && grep -qxF "$oci_digest" "$cache_record"; then
+    info "Reusing cached OCI manifest for $oci_ref" >&2
+  else
+    mkdir -p "$cache_dir"
+    printf '%s\n' "$oci_digest" > "$cache_record"
+  fi
+
+  printf '%s@%s' "$oci_ref" "$oci_digest"
+}
+
+# Format 1 (legacy): a single bundle tarball containing the rootfs tarball plus
+# the host payload. Format 2: a small host payload archive plus an OCI image
+# pulled directly from the registry. Returns the unpacked host payload path.
+download_release_bundle() {
+  local lock_format lock_asset lock_url lock_sha cached cached_sum target bundle
+
+  lock_format="$(release_lock_format)"
+  if [[ "$lock_format" == "2" ]]; then
+    printf ''
+    return 1
+  fi
+
+  lock_asset="$(release_lock_field asset)" || die 'Release lock has no asset name.'
+  lock_url="$(release_lock_field url)" || die 'Release lock has no download URL.'
+  lock_sha="$(release_lock_field sha256)" || die 'Release lock has no SHA-256 checksum.'
+  [[ "$lock_sha" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
+
+  target="$OA_INSTALL_TEMP/$lock_asset"
+  mkdir -p "$OA_BUNDLE_CACHE"
+  cached="$OA_BUNDLE_CACHE/$lock_asset"
+
+  if [[ -f "$cached" ]]; then
+    cached_sum="$(sha256sum "$cached" | awk '{print $1}')"
+    if [[ "$cached_sum" == "$lock_sha" ]]; then
       info "Reusing verified release bundle from cache" >&2
       cp -f "$cached" "$target"
       printf '%s' "$target"
@@ -89,36 +190,31 @@ download_release_bundle() {
   fi
 
   info "Downloading verified stable ARM64 release" >&2
-  # --continue-at - resumes any partial download left from a previous run.
-  # We stage the download into the persistent cache directory so a failed or
-  # interrupted transfer can be resumed on the next invocation.
-  local partial="$OA_BUNDLE_CACHE/${asset}.partial"
-  if [[ ! -f "$target" && -f "$partial" ]]; then
-    cp -f "$partial" "$target"
-  fi
-  if ! curl --fail --location --retry 3 --retry-delay 5 \
-      --continue-at - --output "$target" "$url"; then
-    [[ -f "$target" ]] && cp -f "$target" "$partial"
+  if ! download_with_resume "$lock_url" "$target"; then
     die 'Release download failed. Check the network connection or pass a local file with --bundle PATH.'
   fi
   actual_sum="$(sha256sum "$target" | awk '{print $1}')"
-  if [[ "$actual_sum" != "$expected_sum" ]]; then
-    [[ -f "$target" ]] && cp -f "$target" "$partial"
-    die "Downloaded bundle checksum mismatch: expected $expected_sum, got $actual_sum"
+  if [[ "$actual_sum" != "$lock_sha" ]]; then
+    die "Downloaded bundle checksum mismatch: expected $lock_sha, got $actual_sum"
   fi
-  rm -f "$partial"
+  rm -f "$target.partial"
   cp -f "$target" "$cached"
   printf '%s' "$target"
 }
 
 expected_bundle_checksum() {
-  local bundle="$1" sidecar checksum
-  if [[ -n "$OA_BUNDLE" ]]; then
+  local bundle="$1" lock_format sidecar checksum
+  lock_format="$(release_lock_format)"
+  if [[ -n "$OA_BUNDLE" && "$lock_format" == "1" ]]; then
     sidecar="$bundle.sha256"
     [[ -f "$sidecar" ]] || die "Local bundles require the generated checksum sidecar: $sidecar"
     read -r checksum _ < "$sidecar"
   else
-    checksum="$(release_field sha256)" || die 'Release lock has no SHA-256 checksum.'
+    checksum="$(release_lock_field sha256 2>/dev/null || true)"
+    if [[ -z "$checksum" ]]; then
+      checksum="$(release_lock_field host_bundle_sha256)" \
+        || die 'Release lock has no SHA-256 checksum.'
+    fi
   fi
   [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
   printf '%s' "$checksum"
@@ -138,26 +234,34 @@ verify_and_extract_bundle() {
 
   mkdir -p "$OA_INSTALL_TEMP/unpacked"
   tar -xf "$bundle" -C "$OA_INSTALL_TEMP/unpacked"
-  [[ -f "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST" ]] || die 'Bundle manifest is missing.'
-  [[ -f "$OA_INSTALL_TEMP/unpacked/SHA256SUMS" ]] || die 'Bundle file checksums are missing.'
+  [[ -f "$OA_INSTALL_TEMP/unpacked/SHA256SUMS" ]] || die 'Bundle checksums are missing.'
   (
     cd "$OA_INSTALL_TEMP/unpacked" || exit
     sha256sum -c SHA256SUMS
   )
 
-  [[ "$(awk -F= '$1=="format" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")" == 1 ]] || \
+  # The legacy format=1 release contained a single manifest named BUNDLE-MANIFEST
+  # and an inner rootfs.tar.xz. The format=2 release splits host payload and
+  # guest rootfs: the manifest is still BUNDLE-MANIFEST, but the rootfs comes
+  # from a separate OCI pull handled by the caller.
+  local manifest_file
+  if [[ -f "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST" ]]; then
+    manifest_file="$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST"
+  else
+    die 'Bundle manifest is missing.'
+  fi
+  [[ "$(awk -F= '$1=="format" {print $2}' "$manifest_file")" =~ ^[12]$ ]] || \
     die 'Unsupported bundle format.'
-  [[ "$(awk -F= '$1=="architecture" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")" == aarch64 ]] || \
+  [[ "$(awk -F= '$1=="architecture" {print $2}' "$manifest_file")" == aarch64 ]] || \
     die 'Release bundle is not ARM64.'
-  manifest_version="$(awk -F= '$1=="version" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")"
+  manifest_version="$(awk -F= '$1=="version" {print $2}' "$manifest_file")"
   [[ "$manifest_version" =~ ^[A-Za-z0-9._-]+$ ]] || die 'Release bundle has an invalid version.'
   packages_file="$OA_INSTALL_TEMP/unpacked/manifest/packages-aarch64-$manifest_version.lock"
   [[ -f "$packages_file" ]] || die 'Release package inventory is missing.'
-  packages_checksum="$(awk -F= '$1=="packages_lock_sha256" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")"
+  packages_checksum="$(awk -F= '$1=="packages_lock_sha256" {print $2}' "$manifest_file")"
   [[ "$packages_checksum" =~ ^[0-9a-f]{64}$ ]] || die 'Release package inventory checksum is missing.'
   [[ "$(sha256sum "$packages_file" | awk '{print $1}')" == "$packages_checksum" ]] || \
     die 'Release package inventory checksum mismatch.'
-  [[ -f "$OA_INSTALL_TEMP/unpacked/rootfs.tar.xz" ]] || die 'Release rootfs is missing.'
   [[ -f "$OA_INSTALL_TEMP/unpacked/host/opt/weston/lib/libweston-14/x11-backend.so" ]] || \
     die 'Patched Weston backend is missing.'
   [[ -x "$OA_INSTALL_TEMP/unpacked/host/bin/omarchy-process-guard" ]] || \
@@ -287,8 +391,17 @@ smoke_test_install() {
     '
 }
 
+# Detect whether the user-supplied --bundle path is an OCI image-layout tarball
+# produced by `docker save` or `proot-distro build -o ...`. Returns 0 on match.
+bundle_is_oci_tarball() {
+  local bundle_path="$1"
+  [[ -f "$bundle_path" ]] || return 1
+  tar -tf "$bundle_path" 2>/dev/null | grep -qxF 'oci-layout' \
+    && tar -tf "$bundle_path" 2>/dev/null | grep -qxF 'index.json'
+}
+
 perform_install() {
-  local target_root bundle expected actual
+  local lock_format bundle rootfs_target rootfs_install_cmd target_root
   target_root="${PREFIX:?}/var/lib/proot-distro/containers/$OA_CONTAINER/rootfs"
   [[ ! -e "$target_root" ]] || die "Target container already exists: $OA_CONTAINER"
   [[ ! -e "$OA_PREFIX" ]] || die "Host runtime path already exists: $OA_PREFIX"
@@ -304,18 +417,59 @@ perform_install() {
   mkdir -p "$OA_BUNDLE_CACHE"
   trap cleanup_install EXIT
 
+  lock_format="$(release_lock_format)"
+
   if [[ -n "$OA_BUNDLE" ]]; then
     bundle="$(cd -- "$(dirname -- "$OA_BUNDLE")" && pwd -P)/$(basename -- "$OA_BUNDLE")"
     [[ -f "$bundle" ]] || die "Local bundle does not exist: $bundle"
+    case "$lock_format" in
+      2)
+        bundle_is_oci_tarball "$bundle" \
+          || die "--bundle must point to an OCI image-layout tarball (containing oci-layout and index.json) for format=2 releases."
+        info "Using local OCI image archive: $bundle"
+        rootfs_install_cmd="$bundle"
+        bundle_host_only=""
+        ;;
+      *)
+        if bundle_is_oci_tarball "$bundle"; then
+          die "--bundle points to an OCI tarball, but the release lock is format=1. Use the bundled tarball from the v0.1.1 release or upgrade the release lock to format=2."
+        fi
+        bundle_host_only="$bundle"
+        rootfs_install_cmd=""
+        ;;
+    esac
   else
-    bundle="$(download_release_bundle)"
+    bundle_host_only=""
+    rootfs_install_cmd=""
   fi
-  verify_and_extract_bundle "$bundle"
+
+  if [[ -z "$bundle_host_only" ]]; then
+    case "$lock_format" in
+      2) bundle_host_only="$(download_host_bundle)" ;;
+      *) bundle_host_only="$(download_release_bundle)" ;;
+    esac
+  fi
+  verify_and_extract_bundle "$bundle_host_only"
+
+  if [[ -z "$rootfs_install_cmd" ]]; then
+    case "$lock_format" in
+      2)
+        info "Pulling OCI rootfs from the registry"
+        rootfs_target="$(fetch_release_rootfs)"
+        rootfs_install_cmd="$rootfs_target"
+        ;;
+      *)
+        rootfs_target="$OA_INSTALL_TEMP/unpacked/rootfs.tar.xz"
+        [[ -f "$rootfs_target" ]] || die 'Release rootfs is missing.'
+        rootfs_install_cmd="$rootfs_target"
+        ;;
+    esac
+  fi
 
   info "Creating isolated PRoot container $OA_CONTAINER"
   OA_CREATED_CONTAINER=true
   proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
-    "$OA_INSTALL_TEMP/unpacked/rootfs.tar.xz"
+    "$rootfs_install_cmd"
   # The release archive intentionally excludes live /run bind mounts. Ensure
   # the guest-side mount point exists before the runtime binds Termux's private
   # session directory onto it.
@@ -324,12 +478,11 @@ perform_install() {
   install_host_runtime
   smoke_test_install
 
-  expected="$(expected_bundle_checksum "$bundle")"
-  actual="$(sha256sum "$bundle" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || die 'Bundle changed while it was being installed.'
   cat > "$OA_PREFIX/INSTALL-MANIFEST" <<EOF
-format=1
-bundle_sha256=$actual
+format=2
+version=$(awk -F= '$1=="version" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")
+oci_reference=$(release_lock_field oci_reference 2>/dev/null || printf '')
+oci_manifest_digest=$(release_lock_field oci_manifest_digest 2>/dev/null || printf '')
 container=$OA_CONTAINER
 gpu=$OA_GPU
 resolution=$OA_RESOLUTION
