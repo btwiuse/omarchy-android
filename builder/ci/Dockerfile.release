@@ -21,7 +21,7 @@
 # Optional build args:
 #   VERSION             = X.Y.Z release label (defaults to "precompile")
 
-ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
+ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
 ARG PRECOMPILE_REFERENCE=ghcr.io/btwiuse/omarchy-android:precompile
 ARG HOST_PAYLOAD_DIR=/tmp/host-payload
 ARG VERSION=precompile

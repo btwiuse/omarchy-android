@@ -10,7 +10,7 @@
 # The base image is pinned by digest in manifest/oci-images.lock so a
 # malicious or stale tag cannot silently swap the build base.
 
-ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
+ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
 
 # syntax=docker/dockerfile:1.7
 

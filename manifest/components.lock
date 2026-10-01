@@ -6,4 +6,4 @@ aquamarine|git|https://github.com/hyprwm/aquamarine.git|a79fb21b2e2a82dd061a6d07
 weston|git|https://gitlab.freedesktop.org/wayland/weston.git|015b3b4d4c05da44a22349ea6e651d1a8f678c59|MIT
 termux-x11|git|https://github.com/termux/termux-x11.git|6d3c6883265b4ec8092673e6d2d61ef86cab5405|MIT
 mesa|git|https://github.com/lfdevs/mesa-for-android-container.git|98f3d6229d61452cef80f8563af7c56ae599dc14|MIT AND BSD-3-Clause AND SGI-B-2.0
-archlinuxarm-rootfs|archive|https://ghcr.io/btwiuse/arch|base-layer-sha256-aee0640ab6ce7bb71b664767952402cfcde39df5402d5d691c494e72a8eb174f|mixed
+archlinuxarm-rootfs|archive|https://ghcr.io/btwiuse/arch|base-aarch64-layer-sha256-aee0640ab6ce7bb71b664767952402cfcde39df5402d5d691c494e72a8eb174f|mixed

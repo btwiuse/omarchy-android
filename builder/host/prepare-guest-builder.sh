@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 builder_name="${OMARCHY_BUILDER_NAME:-omarchy-android-builder}"
-builder_image=ghcr.io/btwiuse/arch:base
+builder_image=ghcr.io/btwiuse/arch:base-aarch64
 container_root="${PREFIX:?Run this script from Termux}/var/lib/proot-distro/containers/$builder_name/rootfs"
 container_manifest="${container_root%/rootfs}/manifest.json"
 packages_file="$ROOT/builder/guest/packages.txt"
@@ -26,7 +26,7 @@ else
   printf 'Reusing existing builder %s.\n' "$builder_name"
 fi
 
-if ! grep -qF '"image_ref": "ghcr.io/btwiuse/arch:base"' "$container_manifest" ||
+if ! grep -qF '"image_ref": "ghcr.io/btwiuse/arch:base-aarch64"' "$container_manifest" ||
    ! grep -qF "sha256:$base_layer_digest" "$container_manifest"; then
     printf 'Builder base image does not match the locked Arch Linux ARM layer.\n' >&2
     exit 1
