@@ -46,7 +46,9 @@ printf 'Locked Arch Linux ARM base: %s (primary layer %s)\n' \
 
 # Pull the base image and verify the resolved manifest matches the lock before
 # it can be used as a build stage. This protects against a stale or swapped tag.
-docker pull "$base_image"
+# --platform forces the arm64 variant on multi-arch manifests because GitHub's
+# arm64 runner still pulls amd64 by default.
+docker pull --platform linux/arm64 "$base_image"
 if ! docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$base_image" |
     grep -qxF "$pinned_base_image"; then
   printf 'Arch Linux ARM base does not match locked manifest %s\n' "$base_manifest" >&2
@@ -60,6 +62,7 @@ mkdir -p "$work_root"
 # compiler toolchain.
 docker build \
   --pull=false \
+  --platform linux/arm64 \
   --tag "$image_tag" \
   --build-arg "ARCHLINUXARM_BASE=$pinned_base_image" \
   --build-arg "OMARCHY_VERSION=$version" \

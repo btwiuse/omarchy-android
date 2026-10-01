@@ -41,7 +41,10 @@ RUN sed -i \
       -e '/^DisableSandboxFilesystem$/d' \
       -e '/^DisableSandboxSyscalls$/d' \
       /etc/pacman.conf \
-    && printf '\nDisableSandboxSyscalls\nDisableSandboxFilesystem\n' >> /etc/pacman.conf \
+    && sed -i \
+         -e '/^\[options\]$/a DisableSandboxSyscalls' \
+         -e '/^\[options\]$/a DisableSandboxFilesystem' \
+         /etc/pacman.conf \
     && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
          sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
        fi \
