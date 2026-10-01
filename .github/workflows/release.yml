@@ -31,6 +31,7 @@ jobs:
       oci_reference: ${{ steps.resolve.outputs.oci_reference }}
       precompile_digest: ${{ steps.precompile.outputs.precompile_digest }}
       release_image_digest: ${{ steps.build.outputs.release_image_digest }}
+      oci_manifest_digest: ${{ steps.build.outputs.release_image_digest }}
       release_reference: ${{ steps.build.outputs.release_reference }}
     steps:
       - name: Check out tagged release source
@@ -158,15 +159,17 @@ jobs:
           path: release/
 
       - name: Check out tagged release source
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Assemble the host bundle
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           VERSION: ${{ needs.image.outputs.version }}
           OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.oci_manifest_digest }}
+          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.release_image_digest }}
         run: |
           mkdir -p release
           base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
@@ -187,6 +190,7 @@ jobs:
             "$GITHUB_WORKSPACE/.work/ci-release-$VERSION"
 
       - name: Publish host payload as a GitHub Release asset
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.image.outputs.version }}
@@ -237,10 +241,11 @@ jobs:
           printf 'host_bundle_asset=%s\n' "$asset" >> "$GITHUB_ENV"
 
       - name: Point the installer at the published release
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           VERSION: ${{ needs.image.outputs.version }}
           OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.oci_manifest_digest }}
+          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.release_image_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ needs.image.outputs.version }}.tar.xz
         run: |
           default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
