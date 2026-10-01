@@ -1,39 +1,54 @@
 # Omarchy Android final release image (aarch64)
 #
-# Final stage layered on top of the precompiled ":precompile" image. Adds
-# the Android host payload (native helpers, patched Weston module, license
-# texts) and stamps the release metadata. The precompile workflow already
-# ran the compiler closure and the curated runtime closure, so this stage
-# never re-installs packages or recompiles anything.
+# Final stage that re-uses the compiled graphics artifact that the
+# precompile workflow pushed as ":precompile". We pull that image into
+# the build as an external build stage and copy the staged
+# /opt/omarchy-android artifact out of it into the layer rooted at
+# btwiuse/arch:base. The base image is locked by digest in
+# manifest/oci-images.lock; the precompile image is pinned by reference
+# passed in via PRECOMPILE_REFERENCE.
 #
-# The release workflow invokes this Dockerfile via `docker buildx build
-# --platform linux/arm64` and pushes the result as the immutable
-# ":X.Y.Z" tag. It also produces the IMAGE-MANIFEST that the installer's
-# release.lock pins against.
+# The release workflow invokes this Dockerfile via
+# `docker buildx build --platform linux/arm64` and pushes the result as
+# the immutable ":X.Y.Z" tag.
 #
 # Build context: the project root.
 # Required build args:
-#   PRECOMPILE_IMAGE    = full reference, e.g. ghcr.io/owner/repo:precompile
-#   HOST_PAYLOAD_DIR   = path inside the context that holds the host payload
+#   PRECOMPILE_REFERENCE = full reference, e.g. ghcr.io/owner/repo:precompile
+#   HOST_PAYLOAD_DIR    = path inside the context that holds the host payload
 #                          archive (built by host/build-release.sh)
-#   OCI_MANIFEST_DIGEST = sha256 digest the install lock pins against
+#   OCI_MANIFEST_DIGEST  = sha256 digest the install lock pins against
 # Optional build args:
-#   VERSION            = X.Y.Z release label (defaults to "precompile")
+#   VERSION             = X.Y.Z release label (defaults to "precompile")
 
-ARG PRECOMPILE_IMAGE=ghcr.io/btwiuse/omarchy-android:precompile
+ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
+ARG PRECOMPILE_REFERENCE=ghcr.io/btwiuse/omarchy-android:precompile
 ARG HOST_PAYLOAD_DIR=/tmp/host-payload
 ARG VERSION=precompile
 ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=linux/arm64 ${PRECOMPILE_IMAGE}
+# ----------------------------------------------------------------------------
+# Stage 1: pull the precompile image and expose its compiled artifact as
+# an external build stage. Nothing compiles here; we mount in the published
+# :precompile as a volume-like context and harvest /opt/omarchy-android.
+# ----------------------------------------------------------------------------
+FROM --platform=linux/arm64 ${PRECOMPILE_REFERENCE} AS precompile
+
+# ----------------------------------------------------------------------------
+# Stage 2: build the released image FROM btwiuse/arch:base (the same base
+# the precompile workflow started from). Install the runtime closure,
+# prune the compiler (it never came in - this stage pulls no compiler
+# packages), install the curated host payload, run the Omarchy shell
+# assembly + theme generator, scrub, and stamp release metadata. The
+# compiled graphics artifact enters via COPY --from=precompile.
+# ----------------------------------------------------------------------------
+FROM --platform=linux/arm64 ${ARCHLINUXARM_BASE}
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Disable pacman's nested sandbox for the same reason as the toolchain
-# stage. The base image ships one, but the toolchain's [options] block was
-# rewritten by build-rootfs; reset it cleanly here.
+# Pacman's nested sandbox cannot run under Docker or PRoot; disable.
 RUN sed -i \
       -e '/^DisableSandboxFilesystem$/d' \
       -e '/^DisableSandboxSyscalls$/d' \
@@ -44,17 +59,14 @@ RUN sed -i \
          /etc/pacman.conf \
     && pacman-key --init \
     && pacman-key --populate archlinuxarm \
-    && pacman -Sy --noconfirm
+    && pacman -Syu --noconfirm
 
-# Project source needed by assemble-release-rootfs.sh: manifests, the patches
-# (already applied inside the precompile, but kept for tooling), the
-# assembly scripts, the lib helpers, and the licenses.
-COPY manifest patches builder scripts licenses lib /opt/src/
+# Project source for the assembly scripts.
+COPY manifest patches builder licenses /opt/src/
 
-# Install the curated runtime closure on top of the precompile. The toolchain
-# stage installs only the compiler/build closure; runtime packages
-# (chromium, quickshell, nautilus, foot, dbus, hyprland, ...) live here so the
-# published image never carries the toolchain.
+# Install the runtime package closure: chromium, quickshell, foot, dbus,
+# the curated desktop environment, plus the libraries Mesa, Hyprland and
+# the rest of the stack need at runtime. No compiler packages here.
 COPY builder/guest/runtime-packages.txt /tmp/builder/runtime-packages.txt
 RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
         /tmp/builder/runtime-packages.txt > /tmp/builder/runtime.pkgs \
@@ -63,12 +75,15 @@ RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
     && rm -rf /var/cache/pacman/pkg/* \
     && unset _pkgs
 
-# Drop the compiler closure that came with the precompile base.
-RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt
+# Pull the compiled graphics artifact out of the precompile image. No
+# compilers, no .git history, no Meson/CMake caches cross over - the
+# precompile image deliberately trims them so only the installable
+# graphics survive.
+COPY --from=precompile /opt/omarchy-android /opt/omarchy-android
+COPY --from=precompile /opt/src/upstream/omarchy /opt/src/upstream/omarchy
 
 # Curated Android host payload: native helpers, patched Weston module, and
-# license texts. Built offline by host/build-release.sh; the release workflow
-# downloads the pinned CI host payload by default.
+# license texts.
 COPY ${HOST_PAYLOAD_DIR}/ /tmp/host-payload-staging/
 RUN install -d -m 0755 /usr/local/bin /opt/weston/lib/libweston-14 \
     && install -m 0755 \
@@ -83,13 +98,13 @@ RUN install -d -m 0755 /usr/local/bin /opt/weston/lib/libweston-14 \
         /usr/share/licenses/omarchy-android/LICENSE \
     && install -m 0644 /tmp/host-payload-staging/host/share/licenses/weston/COPYING \
         /usr/share/licenses/weston/COPYING \
-    && rm -rf /tmp/host-payload-staging
+    && rm -rf /tmp/host-payload-staging /tmp/builder
 
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
 # run the default theme generator, scrub the result, and write the release
-# identity metadata. assemble-release-rootfs.sh reads manifest/* and the
-# staged graphics under /opt/omarchy-android (inherited from precompile).
+# identity metadata.
 COPY builder/guest/install-artifacts.sh /opt/src/builder/guest/install-artifacts.sh
+COPY scripts /opt/src/scripts/
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       omarchy \
