@@ -28,9 +28,11 @@ ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
 
 # syntax=docker/dockerfile:1.7
 
-SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
-
 FROM ${ARCHLINUXARM_BASE}
+
+# Switch to bash with strict flags for the rest of the build. SHELL must come
+# after FROM in BuildKit.
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker or
 # PRoot. Disable only those inner restrictions; the entire builder remains
