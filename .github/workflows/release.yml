@@ -133,6 +133,13 @@ jobs:
               --file builder/ci/Dockerfile.release \
               "$GITHUB_WORKSPACE"
           docker push "$release_reference"
+          # Generate the package inventory from the published image. The
+          # release workflow used to inherit this from the legacy
+          # build-image pipeline; assemble-bundle.sh needs the lock on
+          # disk to verify the bundle against the expected runtime closure.
+          docker run --rm --platform linux/arm64 "$release_reference" \
+              /bin/sh -c 'pacman -Q | LC_ALL=C sort' \
+              > image-output/packages-aarch64-$VERSION.lock
           # Mirror under stable, well-known names so install URLs are easy
           # to spell. :latest tracks the most recent release-built image;
           # :release mirrors :main under a name that signals "the release
