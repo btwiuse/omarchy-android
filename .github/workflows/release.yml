@@ -81,7 +81,7 @@ jobs:
           mkdir -p image-output host-payload
           host_record="$(awk -F '|' '$1=="android-host" {print; found=1; exit} END {if (!found) exit 1}' "$GITHUB_WORKSPACE/manifest/host-artifacts.lock")"
           IFS='|' read -r _ _ host_url host_sha256 _ <<<"$host_record"
-          host_archive="$WORKSPACE/${host_url##*/}"
+          host_archive="$GITHUB_WORKSPACE/${host_url##*/}"
           curl --fail --location --retry 3 --output "$host_archive" "$host_url"
           actual_sha="$(sha256sum "$host_archive" | awk '{print $1}')"
           [[ "$actual_sha" == "$host_sha256" ]] \
