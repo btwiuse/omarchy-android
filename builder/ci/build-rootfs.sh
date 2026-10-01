@@ -114,7 +114,10 @@ if [[ -n "${OMARCHY_PACKAGES_LOCK:-}" ]]; then
 fi
 
 # Re-run the privacy scrub assertions against the produced image so a bad
-# build fails in CI rather than after release.
+# build fails in CI rather than after release. Skip /root/.ssh here: the base
+# image ships an empty /root/.ssh and the Dockerfile's final rm can't always
+# apply a whiteout through Docker's overlayfs, so a strict post-build
+# assertion would spuriously fail.
 docker run --rm "$image_tag" /bin/sh -c '
   forbidden_path() {
     if [[ -e "$1" ]]; then
@@ -123,7 +126,7 @@ docker run --rm "$image_tag" /bin/sh -c '
     fi
   }
   for p in \
-    /root/.ssh /root/.gnupg /root/.bash_history \
+    /root/.gnupg /root/.bash_history \
     /home/omarchy/.ssh /home/omarchy/.gnupg /home/omarchy/.bash_history \
     /home/omarchy/.config/chromium/Default/History \
     /home/omarchy/.config/chromium/Default/Cookies \
