@@ -27,6 +27,7 @@ jobs:
     outputs:
       precompile_reference: ${{ steps.resolve.outputs.precompile_reference }}
       version_tag: ${{ steps.resolve.outputs.version_tag }}
+      version: ${{ steps.resolve.outputs.version }}
       oci_reference: ${{ steps.resolve.outputs.oci_reference }}
       image_manifest_digest: ${{ steps.precompile.outputs.precompile_digest }}
     steps:
@@ -132,18 +133,11 @@ jobs:
           printf 'oci_manifest_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
           printf 'release_reference=%s\n' "$release_reference" >> "$GITHUB_ENV"
 
-      - name: Export the published image as an OCI tarball
-        run: |
-          mkdir -p image-output
-          docker save -o image-output/release.oci.tar "${release_reference}"
-
-      - name: Upload release image and host payload as artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: omarchy-android-release-${{ steps.resolve.outputs.version }}
-          path: |
-            image-output/release.oci.tar
-            host-payload-staging/
+          name: omarchy-android-release-${{ steps.resolve.outputs.version_tag }}
+          path: host-payload-staging/
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -154,19 +148,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Download release artifacts
+      - name: Download host payload artifact
         uses: actions/download-artifact@v8
         with:
-          name: omarchy-android-release-${{ needs.image.outputs.version }}
+          name: omarchy-android-release-${{ needs.image.outputs.version_tag }}
           path: release/
-
-      - name: Verify OCI tarball layout
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          for required in oci-layout index.json manifest.json; do
-            tar -tf release/release.oci.tar | grep -qxF "$required" \
-              || { printf 'OCI tarball missing %s\n' "$required" >&2; exit 1; }
-          done
 
       - name: Assemble the host bundle
         env:
