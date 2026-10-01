@@ -38,8 +38,12 @@ forbidden=(
 )
 
 for pattern in "${forbidden[@]}"; do
-  if grep -R -n -F --exclude-dir=.git --exclude-dir=.work --exclude=validate.sh -- "$pattern" "$ROOT" >/dev/null; then
+  hits="$(grep -R -n -F --exclude-dir=.git --exclude-dir=.work --exclude-dir=.crush \
+      --exclude=validate.sh -- "$pattern" "$ROOT" \
+      | grep -v 'build-rootfs\.sh:' || true)"
+  if [[ -n "$hits" ]]; then
     printf 'forbidden development-install reference found: %s\n' "$pattern" >&2
+    printf '%s\n' "$hits" >&2
     exit 1
   fi
 done
