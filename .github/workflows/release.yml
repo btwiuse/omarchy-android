@@ -166,7 +166,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.resolve.outputs.version }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
+          OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
         run: |
           tag="v$VERSION"
           asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
@@ -185,7 +185,7 @@ jobs:
           printf 'base_layer=%s\n' "$base_layer" >> image-output/IMAGE-MANIFEST
           ./builder/ci/assemble-bundle.sh \
             "$VERSION" \
-            image-output/ \
+            "$GITHUB_WORKSPACE/image-output/" \
             "$GITHUB_WORKSPACE/.work/ci-release-$VERSION"
 
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
@@ -236,7 +236,7 @@ jobs:
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
+          OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
           default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
