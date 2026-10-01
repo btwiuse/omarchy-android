@@ -126,7 +126,7 @@ RUN /opt/src/scripts/fetch-sources.sh \
 # actual awk/sha256sum work lives in builder/guest/stamp-release-metadata.sh
 # so that Dockerfile quoting does not corrupt the embedded awk.
 COPY builder/guest/stamp-release-metadata.sh /opt/stamp-release-metadata.sh
-RUN /opt/stamp-release-metadata.sh "$VERSION" "$PRECOMPILE_DIGEST" \
+RUN /opt/stamp-release-metadata.sh "$VERSION" "$OCI_MANIFEST_DIGEST" \
     && rm -f /opt/stamp-release-metadata.sh
 
 CMD ["/bin/bash"]
