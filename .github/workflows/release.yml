@@ -99,7 +99,21 @@ jobs:
           VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           VERSION: ${{ steps.resolve.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VERSION_REF: ${{ github.ref_name }}
         run: |
+          # Pull and stage the host payload in the build context. The
+          # Dockerfile expects ./host-payload-staging/ at the project root.
+          mkdir -p host-payload-staging
+          host_record="$(awk -F '|' '$1=="android-host" {print; found=1; exit} END {if (!found) exit 1}' "$GITHUB_WORKSPACE/manifest/host-artifacts.lock")"
+          IFS='|' read -r _ _ host_url host_sha256 _ <<<"$host_record"
+          host_archive="$GITHUB_WORKSPACE/${host_url##*/}"
+          curl --fail --location --retry 3 --output "$host_archive" "$host_url"
+          actual_sha="$(sha256sum "$host_archive" | awk '{print $1}')"
+          [[ "$actual_sha" == "$host_sha256" ]] \
+            || { echo "Host payload checksum mismatch" >&2; exit 1; }
+          tar -xf "$host_archive" -C host-payload-staging
+
           # The release image is the immutable X.Y.Z (or :main for non-tag
           # pushes). Tag it locally under that ref so the release workflow
           # does not have to overwrite the floating :precompile tag the
