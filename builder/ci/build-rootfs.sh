@@ -91,17 +91,11 @@ mkdir -p "$output_root"
 package_inventory="$output_root/packages-aarch64-$version.lock"
 
 # Run `pacman -Q` inside the built image so the published package inventory
-# describes exactly what shipped, not what the disposable base provided. We
-# start a throwaway container because the image has no pre-existing entry
-# point we want to invoke and we want full control over cleanup.
-docker create --name "$container_name" "$image_tag" /bin/true >/dev/null
-container_started=1
-docker start "$container_name" >/dev/null
-docker exec "$container_name" /bin/sh -c 'pacman -Q | LC_ALL=C sort' \
+# describes exactly what shipped, not what the disposable base provided.
+# `docker run --rm` does create+start+wait+cleanup in one call, avoiding the
+# stop-exited container state that breaks a subsequent `docker exec`.
+docker run --rm "$image_tag" /bin/sh -c 'pacman -Q | LC_ALL=C sort' \
   > "$package_inventory"
-docker stop "$container_name" >/dev/null
-docker rm --force "$container_name" >/dev/null
-container_started=0
 
 # Enforce the same package-closure contract as the phone release builder.
 if [[ -n "${OMARCHY_PACKAGES_LOCK:-}" ]]; then
