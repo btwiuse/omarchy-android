@@ -24,6 +24,11 @@ jobs:
     name: Build the release image on top of :precompile
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
+    outputs:
+      precompile_reference: ${{ steps.resolve.outputs.precompile_reference }}
+      version_tag: ${{ steps.resolve.outputs.version_tag }}
+      oci_reference: ${{ steps.resolve.outputs.oci_reference }}
+      image_manifest_digest: ${{ steps.precompile.outputs.precompile_digest }}
     steps:
       - name: Check out tagged release source
         uses: actions/checkout@v7
@@ -66,12 +71,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull the precompile image and capture its digest
+        id: precompile
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
         run: |
           docker pull --platform linux/arm64 "$PRECOMPILE_REFERENCE"
           precompile_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$PRECOMPILE_REFERENCE" | sed -e 's/^[^@]*@//')"
-          printf 'precompile_digest=%s\n' "$precompile_digest" >> "$GITHUB_ENV"
+          printf 'precompile_digest=%s\n' "$precompile_digest" >> "$GITHUB_OUTPUT"
 
       - name: Download the host payload archive
         env:
@@ -91,7 +97,7 @@ jobs:
       - name: Build the release image on top of :precompile
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
-          PRECOMPILE_DIGEST: ${{ env.precompile_digest }}
+          PRECOMPILE_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
