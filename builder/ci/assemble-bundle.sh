@@ -35,6 +35,14 @@ done
 )
 
 image_manifest="$image_output/IMAGE-MANIFEST"
+[[ -f "$image_manifest" ]] || {
+  printf 'Image manifest is missing: %s\n' "$image_manifest" >&2
+  exit 1
+}
+[[ "$(awk -F= '$1=="format" {print $2}' "$image_manifest")" == 2 ]] || {
+  printf 'Image manifest is not the OCI format=2.\n' >&2
+  exit 1
+}
 [[ "$(awk -F= '$1=="version" {print $2}' "$image_manifest")" == "$version" ]] || {
   printf 'Image manifest version does not match %s.\n' "$version" >&2
   exit 1
@@ -43,15 +51,9 @@ image_manifest="$image_output/IMAGE-MANIFEST"
   printf 'Image manifest is not AArch64.\n' >&2
   exit 1
 }
-rootfs_name="$(awk -F= '$1=="rootfs" {print $2}' "$image_manifest")"
-[[ "$rootfs_name" == "omarchy-android-rootfs-aarch64-$version.tar.xz" ]] || {
-  printf 'Unexpected rootfs name in image manifest: %s\n' "$rootfs_name" >&2
-  exit 1
-}
-rootfs="$image_output/$rootfs_name"
 packages="$image_output/packages-aarch64-$version.lock"
-[[ -f "$rootfs" && -f "$packages" ]] || {
-  printf 'Image output is incomplete.\n' >&2
+[[ -f "$packages" ]] || {
+  printf 'Image output is missing the package inventory.\n' >&2
   exit 1
 }
 
@@ -136,7 +138,6 @@ for executable in \
 done
 
 cp -a "$host_root/host" "$bundle_root/host"
-cp --reflink=auto "$rootfs" "$bundle_root/rootfs.tar.xz"
 install -D -m 0644 "$packages" "$bundle_root/manifest/$(basename -- "$packages")"
 
 components_lock_sha256="$(sha256sum "$ROOT/manifest/components.lock")"
@@ -147,11 +148,28 @@ artifacts_lock_sha256="$(sha256sum "$ROOT/manifest/artifacts.lock")"
 artifacts_lock_sha256="${artifacts_lock_sha256%% *}"
 packages_lock_sha256="$(sha256sum "$packages")"
 packages_lock_sha256="${packages_lock_sha256%% *}"
+oci_manifest_digest="$(awk -F= '$1=="oci_manifest_digest" {print $2}' "$image_manifest")"
+oci_reference="$(awk -F= '$1=="oci_reference" {print $2}' "$image_manifest")"
+oci_repository="$(awk -F= '$1=="oci_repository" {print $2}' "$image_manifest")"
+base_manifest="$(awk -F= '$1=="base_manifest" {print $2}' "$image_manifest")"
+base_layer="$(awk -F= '$1=="base_layer" {print $2}' "$image_manifest")"
+[[ "$oci_manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+  printf 'IMAGE-MANIFEST has no oci_manifest_digest.\n' >&2
+  exit 1
+}
+[[ -n "$oci_reference" && -n "$oci_repository" && -n "$base_manifest" && -n "$base_layer" ]] || {
+  printf 'IMAGE-MANIFEST is missing one of: oci_reference, oci_repository, base_manifest, base_layer.\n' >&2
+  exit 1
+}
 cat > "$bundle_root/BUNDLE-MANIFEST" <<EOF
-format=1
+format=2
 version=$version
 architecture=aarch64
-rootfs=rootfs.tar.xz
+oci_reference=$oci_reference
+oci_repository=$oci_repository
+oci_manifest_digest=$oci_manifest_digest
+base_manifest=$base_manifest
+base_layer=$base_layer
 components_lock_sha256=$components_lock_sha256
 patches_lock_sha256=$patches_lock_sha256
 artifacts_lock_sha256=$artifacts_lock_sha256
@@ -169,7 +187,7 @@ chmod 0644 "$bundle_root/BUNDLE-MANIFEST"
   sha256sum -c SHA256SUMS
 )
 
-asset="omarchy-android-aarch64-$version.bundle.tar"
+asset="omarchy-android-host-aarch64-$version.tar.xz"
 bundle="$release_output/$asset"
 [[ ! -e "$bundle" && ! -e "$bundle.sha256" ]] || {
   printf 'Refusing to replace release output: %s\n' "$bundle" >&2
@@ -177,7 +195,7 @@ bundle="$release_output/$asset"
 }
 partial="$bundle.partial"
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-  -C "$bundle_root" -cf "$partial" .
+  -C "$bundle_root" -cJf "$partial" .
 mv "$partial" "$bundle"
 (
   cd "$release_output"
@@ -186,5 +204,6 @@ mv "$partial" "$bundle"
 )
 chmod 0644 "$bundle" "$bundle.sha256"
 
-printf 'Complete release bundle: %s\n' "$bundle"
-printf 'Release checksum:        %s\n' "$bundle.sha256"
+printf 'Host payload bundle:  %s\n' "$bundle"
+printf 'Host payload checksum: %s\n' "$bundle.sha256"
+printf 'OCI guest image:      %s@%s\n' "$oci_reference" "$oci_manifest_digest"
