@@ -59,33 +59,20 @@ jobs:
         env:
           PRECOMPILE_REFERENCE: ghcr.io/${{ github.repository }}:precompile
         run: |
-          # Confirm the image we just published carries every artifact the
-          # installer expects. This catches a broken Dockerfile before the
-          # release workflow trusts the image.
+          # The precompile stage produces a toolchain image with compiled
+          # graphics; it does not perform final assembly. Smoke-test only
+          # what the precompile stage promises: the compiled artifact is
+          # present and the source roots are imported. Final release-image
+          # assertions belong to release.yml.
           docker pull --platform linux/arm64 "$PRECOMPILE_REFERENCE"
-          # Capture both stdout and stderr to diagnose which assertion fails.
-          if ! docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
+          docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
             set -eu
-            test -f /etc/omarchy-android-release
+            test -f /opt/omarchy-android/SHA256SUMS
             test -x /opt/omarchy-android/hyprland/bin/Hyprland
-            test -f /home/omarchy/.config/hypr/hyprland.lua
-            test -f /home/omarchy/.config/omarchy/proot-session-bus.conf
-            test -x /usr/local/bin/omarchy-dbus-service
-            test -x /usr/local/bin/voxtype
-            test -f /usr/share/omarchy/LICENSE
-            command -v quickshell chromium nautilus foot uwsm-app omarchy-launch-shell
-            locale -a | grep -Fxi "C.utf8"
-          '; then
-            echo "--- Diagnostics: dumping precompile top-level ---"
-            docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
-              echo "/etc/omarchy-android-release:"
-              cat /etc/omarchy-android-release 2>&1 | head -5 || true
-              echo "/opt/omarchy-android listing:"
-              ls /opt/omarchy-android 2>&1 || true
-              echo "/usr/local/bin listing:"
-              ls /usr/local/bin 2>&1 | head -10 || true
-              echo "/usr/share/omarchy listing:"
-              ls /usr/share/omarchy 2>&1 | head -10 || true
-            '
-            exit 1
-          fi
+            test -f /opt/omarchy-android/mesa/freedreno_icd.json
+            test -f /opt/omarchy-android/aquamarine/lib/libaquamarine.so
+            # Toolchain layer must NOT carry the final release artifacts; those
+            # are added by Dockerfile.release on top of this base.
+            test ! -f /etc/omarchy-android-release
+            test ! -x /usr/local/bin/omarchy-dbus-service
+          '
