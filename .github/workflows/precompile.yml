@@ -1,11 +1,11 @@
-name: Build edge OCI image
+name: Precompile ARM64 OCI image
 
 on:
   push:
     branches:
       - main
     paths:
-      - .github/workflows/build-edge.yml
+      - .github/workflows/precompile.yml
       - .github/workflows/release.yml
       - builder/**
       - licenses/**
@@ -21,7 +21,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: arm64-edge-${{ github.ref }}
+  group: arm64-precompile-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -52,18 +52,18 @@ jobs:
 
       - name: Rebuild sanitized ARM64 OCI image
         run: |
-          version="edge-${GITHUB_SHA:0:12}"
+          version="precompile-${GITHUB_SHA:0:12}"
           ./builder/ci/build-rootfs.sh "$version"
 
-      - name: Smoke-test the published edge image
+      - name: Smoke-test the published precompile image
         env:
-          EDGE_REFERENCE: ghcr.io/${{ github.repository }}:edge
+          PRECOMPILE_REFERENCE: ghcr.io/${{ github.repository }}:precompile
         run: |
-          # Confirm the image we just published can install proot-distro and
-          # carries every curated artifact the installer expects. This catches
-          # a broken Dockerfile before the release workflow trusts the image.
-          docker pull --platform linux/arm64 "$EDGE_REFERENCE"
-          docker run --rm --platform linux/arm64 "$EDGE_REFERENCE" /bin/sh -c '
+          # Confirm the image we just published carries every artifact the
+          # installer expects. This catches a broken Dockerfile before the
+          # release workflow trusts the image.
+          docker pull --platform linux/arm64 "$PRECOMPILE_REFERENCE"
+          docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
             set -eu
             test -f /etc/omarchy-android-release
             test -x /opt/omarchy-android/hyprland/bin/Hyprland

@@ -6,8 +6,8 @@ on:
       - v*
   workflow_dispatch:
     inputs:
-      edge_tag:
-        description: 'Specific edge build to release from (e.g. edge-abc123def0). Defaults to :edge.'
+      precompile_tag:
+        description: 'Specific precompile build to release from (e.g. precompile-abc123def0). Defaults to :precompile.'
         required: false
         type: string
 
@@ -30,32 +30,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve edge image reference
+      - name: Resolve precompile image reference
         id: resolve
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REQUESTED_TAG: ${{ inputs.edge_tag }}
+          REQUESTED_TAG: ${{ inputs.precompile_tag }}
           VERSION_REF: ${{ github.ref_name }}
         run: |
-          # The build-edge workflow pushes two GHCR tags: a floating ':edge'
-          # and a per-build pinned 'edge-<sha>'. By default we publish from the
-          # rolling ':edge'; a workflow_dispatch run can pin to a specific
-          # edge build by passing edge_tag.
+          # The precompile workflow pushes two GHCR tags: a floating
+          # ':precompile' and a per-build pinned 'precompile-<sha>'. By
+          # default we publish from the rolling ':precompile'; a
+          # workflow_dispatch run can pin to a specific precompile build by
+          # passing precompile_tag.
           if [[ -n "${REQUESTED_TAG:-}" ]]; then
-            edge_tag="$REQUESTED_TAG"
+            precompile_tag="$REQUESTED_TAG"
           else
-            edge_tag="edge"
+            precompile_tag="precompile"
           fi
-          printf 'edge_tag=%s\n' "$edge_tag" >> "$GITHUB_OUTPUT"
-          printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$edge_tag" >> "$GITHUB_OUTPUT"
+          printf 'precompile_tag=%s\n' "$precompile_tag" >> "$GITHUB_OUTPUT"
+          printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
           # The version tag is the X.Y.Z label from the release tag. We push
           # that as an immutable OCI reference so the lock pins to a real tag,
-          # not the rolling ':edge' that may move on.
+          # not the rolling ':precompile' that may move on.
           version="${VERSION_REF#v}"
           if [[ -n "$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$version" >> "$GITHUB_OUTPUT"
           else
-            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$edge_tag" >> "$GITHUB_OUTPUT"
+            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Log in to GitHub Container Registry
@@ -65,17 +66,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull the edge image, tag it for this version, and save as OCI tarball
+      - name: Pull the precompile image, tag it for this version, and save as OCI tarball
         env:
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
         run: |
           mkdir -p image-output
           docker pull "$OCI_REFERENCE"
-          docker save -o image-output/edge.oci.tar "$OCI_REFERENCE"
+          docker save -o image-output/precompile.oci.tar "$OCI_REFERENCE"
           published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$OCI_REFERENCE" | sed -e 's/^[^@]*@//')"
           printf 'published_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
-          # Push an immutable X.Y.Z tag that survives even when ':edge' moves.
+          # Push an immutable X.Y.Z tag that survives even when ':precompile' moves.
           docker tag "$OCI_REFERENCE" "$VERSION_TAG"
           docker push "$VERSION_TAG"
           printf 'oci_reference=%s\n' "$VERSION_TAG" >> "$GITHUB_ENV"
@@ -84,9 +85,9 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE"
           rm -f oci-members.txt
-          tar -tf image-output/edge.oci.tar > oci-members.txt
+          tar -tf image-output/precompile.oci.tar > oci-members.txt
           for required in oci-layout index.json manifest.json; do
-            tar -tf image-output/edge.oci.tar | grep -qxF "$required" \
+            tar -tf image-output/precompile.oci.tar | grep -qxF "$required" \
               || { printf 'OCI tarball missing %s\n' "$required" >&2; exit 1; }
           done
           rm oci-members.txt

@@ -68,15 +68,15 @@ docker build \
   "$ROOT"
 image_built=1
 
-# Floating ':edge' tag — every successful build overwrites it.
-edge_reference="${OMARCHY_CI_EDGE_REFERENCE:-ghcr.io/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}:edge}"
-docker tag "$image_tag" "$edge_reference"
-docker push "$edge_reference"
+# Floating ':precompile' tag — every successful build overwrites it.
+precompile_reference="${OMARCHY_CI_PRECOMPILE_REFERENCE:-ghcr.io/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}:precompile}"
+docker tag "$image_tag" "$precompile_reference"
+docker push "$precompile_reference"
 
 # Pinned-per-build tag so consumers can pin a specific commit if needed.
 pinned_reference="ghcr.io/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}:${version}"
 docker tag "$image_tag" "$pinned_reference"
 docker push "$pinned_reference"
 
-manifest_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$edge_reference" | sed -e 's|^[^@]*@||')"
-printf 'Pushed %s@%s\n' "$edge_reference" "$manifest_digest"
+manifest_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$precompile_reference" | sed -e 's|^[^@]*@||')"
+printf 'Pushed %s@%s\n' "$precompile_reference" "$manifest_digest"
