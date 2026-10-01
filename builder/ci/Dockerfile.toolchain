@@ -1,0 +1,92 @@
+# Omarchy Android toolchain image (aarch64)
+#
+# Intermediate build product: the locked base image plus the compiler
+# closure, the fetched upstream checkouts, and the compiled graphics artifact
+# staged at /opt/omarchy-android. The precompile workflow builds this image
+# and pushes it to GHCR as :precompile so the release workflow can run a
+# thin final-stage layer (Dockerfile.release) on top of it without paying
+# the multi-hour Mesa/Hyprland build cost again.
+#
+# The base image is pinned by digest in manifest/oci-images.lock so a
+# malicious or stale tag cannot silently swap the build base.
+
+ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
+
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=linux/arm64 ${ARCHLINUXARM_BASE}
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker or
+# PRoot. Disable only those inner restrictions; the entire builder remains
+# confined to the disposable container.
+RUN sed -i \
+      -e '/^DisableSandboxFilesystem$/d' \
+      -e '/^DisableSandboxSyscalls$/d' \
+      /etc/pacman.conf \
+    && sed -i \
+         -e '/^\[options\]$/a DisableSandboxSyscalls' \
+         -e '/^\[options\]$/a DisableSandboxFilesystem' \
+         /etc/pacman.conf \
+    && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
+         sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
+       fi \
+    && if ! grep -q '^DownloadUser' /etc/pacman.conf; then \
+         sed -i '/^\[options\]$/a DownloadUser = root' /etc/pacman.conf; \
+       fi \
+    && pacman-key --init \
+    && pacman-key --populate archlinuxarm \
+    && pacman -Syu --noconfirm
+
+# Build dependency set (compilers, headers, linkers, generators).
+COPY builder/guest/packages.txt /tmp/builder/packages.txt
+RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
+        /tmp/builder/packages.txt > /tmp/builder/build.pkgs \
+    && mapfile -t _pkgs < /tmp/builder/build.pkgs \
+    && pacman -S --needed --noconfirm "${_pkgs[@]}" \
+    && rm -rf /var/cache/pacman/pkg/* \
+    && unset _pkgs
+
+# Project source for the build-time scripts and pinned manifest lock files.
+# Each directory is copied with a trailing slash so the directory names are
+# preserved (COPY on a directory copies its CONTENTS, not the directory).
+# lib/ is included so fetch-sources.sh and verify-patches.sh can source
+# lib/common.sh and lib/manifest.sh.
+WORKDIR /opt/src
+COPY manifest /opt/src/manifest/
+COPY patches /opt/src/patches/
+COPY builder /opt/src/builder/
+COPY scripts /opt/src/scripts/
+COPY licenses /opt/src/licenses/
+COPY lib /opt/src/lib/
+
+ENV OMARCHY_BUILD_JOBS=4
+
+# Trust the upstream checkouts the graphics builder reads from.
+RUN git config --global --add safe.directory /opt/src/upstream/mesa \
+    && git config --global --add safe.directory /opt/src/upstream/aquamarine \
+    && git config --global --add safe.directory /opt/src/upstream/hyprland
+
+# Compile Mesa+Aquamarine+Hyprland against the staged Mesa userspace. The
+# graphics artifact lands under /opt/omarchy-android and the source / build
+# scratch dirs are deleted before the stage ends. /opt/src/upstream/omarchy
+# is kept so the release stage can copy the patched shell tree.
+RUN /opt/src/scripts/fetch-sources.sh \
+      --destination /opt/src/upstream \
+      mesa aquamarine hyprland omarchy \
+    && git -C /opt/src/upstream/omarchy config user.name 'Omarchy Android Builder' \
+    && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
+    && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
+         /opt/src/patches/omarchy-shell/*.patch \
+    && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
+       /opt/src/builder/guest/build-from-local-forks.sh \
+         /opt/src \
+         /opt/src/upstream \
+         /opt/omarchy-android \
+         /var/tmp/omarchy-android-sources \
+         /var/tmp/omarchy-android-build \
+    && find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
+    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
+
+CMD ["/bin/bash"]

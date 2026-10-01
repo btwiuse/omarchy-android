@@ -1,43 +1,39 @@
-# Omarchy Android release image (aarch64)
+# Omarchy Android final release image (aarch64)
 #
-# Builds the sanitized ARM64 release rootfs entirely inside the container so the
-# resulting image is reproducible from this repository alone. No host bind mounts
-# are required at build time, which lets the same Dockerfile drive both GitHub
-# Actions (via `docker build`) and on-device Termux builders (via `proot-distro
-# build`).
+# Final stage layered on top of the precompiled ":precompile" image. Adds
+# the Android host payload (native helpers, patched Weston module, license
+# texts) and stamps the release metadata. The precompile workflow already
+# ran the compiler closure and the curated runtime closure, so this stage
+# never re-installs packages or recompiles anything.
 #
-# Build context must be the project root. The Dockerfile runs in two stages:
+# The release workflow invokes this Dockerfile via `docker buildx build
+# --platform linux/arm64` and pushes the result as the immutable
+# ":X.Y.Z" tag. It also produces the IMAGE-MANIFEST that the installer's
+# release.lock pins against.
 #
-#   toolchain: install compiler + runtime packages, fetch pinned upstream
-#     sources, apply the reviewed Android patch series, and compile Mesa,
-#     Aquamarine, and Hyprland against the staged Mesa userspace. Drop every
-#     compiler dependency before the stage ends.
-#
-#   runtime:   start from the same base, install only the explicit runtime
-#     roots, copy just the graphics artifact and the assembled project overlay
-#     out of the toolchain stage, lay down the Omarchy shell and the curated
-#     Android guest runtime, scrub the result, and write the release
-#     metadata. The compiler toolchain and the .git history of every
-#     component are never copied here.
-#
-# The base image is pinned by digest in manifest/oci-images.lock so a malicious
-# or stale tag cannot silently swap the build base.
+# Build context: the project root.
+# Required build args:
+#   PRECOMPILE_IMAGE    = full reference, e.g. ghcr.io/owner/repo:precompile
+#   HOST_PAYLOAD_DIR   = path inside the context that holds the host payload
+#                          archive (built by host/build-release.sh)
+#   OCI_MANIFEST_DIGEST = sha256 digest the install lock pins against
+# Optional build args:
+#   VERSION            = X.Y.Z release label (defaults to "precompile")
 
-ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
+ARG PRECOMPILE_IMAGE=ghcr.io/btwiuse/omarchy-android:precompile
+ARG HOST_PAYLOAD_DIR=/tmp/host-payload
+ARG VERSION=precompile
+ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 # syntax=docker/dockerfile:1.7
 
-# ----------------------------------------------------------------------------
-# Stage 1: toolchain
-# ----------------------------------------------------------------------------
-FROM ${ARCHLINUXARM_BASE} AS toolchain
+FROM --platform=linux/arm64 ${PRECOMPILE_IMAGE}
 
-# Switch to bash with strict flags. SHELL must come after FROM in BuildKit.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker or
-# PRoot. Disable only those inner restrictions; the entire builder remains
-# confined to the disposable container.
+# Disable pacman's nested sandbox for the same reason as the toolchain
+# stage. The base image ships one, but the toolchain's [options] block was
+# rewritten by build-rootfs; reset it cleanly here.
 RUN sed -i \
       -e '/^DisableSandboxFilesystem$/d' \
       -e '/^DisableSandboxSyscalls$/d' \
@@ -46,92 +42,19 @@ RUN sed -i \
          -e '/^\[options\]$/a DisableSandboxSyscalls' \
          -e '/^\[options\]$/a DisableSandboxFilesystem' \
          /etc/pacman.conf \
-    && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
-       fi \
-    && if ! grep -q '^DownloadUser' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a DownloadUser = root' /etc/pacman.conf; \
-       fi \
     && pacman-key --init \
     && pacman-key --populate archlinuxarm \
-    && pacman -Syu --noconfirm
+    && pacman -Sy --noconfirm
 
-# Build dependency set (compilers, headers, linkers, generators).
-COPY builder/guest/packages.txt /tmp/builder/packages.txt
-RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
-        /tmp/builder/packages.txt > /tmp/builder/build.pkgs \
-    && mapfile -t _pkgs < /tmp/builder/build.pkgs \
-    && pacman -S --needed --noconfirm "${_pkgs[@]}" \
-    && rm -rf /var/cache/pacman/pkg/* \
-    && unset _pkgs
+# Project source needed by assemble-release-rootfs.sh: manifests, the patches
+# (already applied inside the precompile, but kept for tooling), the
+# assembly scripts, the lib helpers, and the licenses.
+COPY manifest patches builder scripts licenses lib /opt/src/
 
-# Project source for the build-time scripts and pinned manifest lock files.
-# Each directory is copied with a trailing slash so the directory names are
-# preserved (COPY on a directory copies its CONTENTS, not the directory).
-# lib/ is included so fetch-sources.sh and verify-patches.sh can source
-# lib/common.sh and lib/manifest.sh.
-WORKDIR /opt/src
-COPY manifest /opt/src/manifest/
-COPY patches /opt/src/patches/
-COPY builder /opt/src/builder/
-COPY scripts /opt/src/scripts/
-COPY licenses /opt/src/licenses/
-COPY lib /opt/src/lib/
-
-ENV OMARCHY_BUILD_JOBS=4
-
-# Trust the upstream checkouts the graphics builder reads from.
-RUN git config --global --add safe.directory /opt/src/upstream/mesa \
-    && git config --global --add safe.directory /opt/src/upstream/aquamarine \
-    && git config --global --add safe.directory /opt/src/upstream/hyprland
-
-# Compile Mesa+Aquamarine+Hyprland against the staged Mesa userspace. The
-# graphics artifact lands under /opt/omarchy-android and the source / build
-# scratch dirs are deleted before the stage ends. /opt/src/upstream/omarchy
-# is kept so runtime stage can copy the patched shell tree.
-RUN /opt/src/scripts/fetch-sources.sh \
-      --destination /opt/src/upstream \
-      mesa aquamarine hyprland omarchy \
-    && git -C /opt/src/upstream/omarchy config user.name 'Omarchy Android Builder' \
-    && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
-    && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
-         /opt/src/patches/omarchy-shell/*.patch \
-    && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
-       /opt/src/builder/guest/build-from-local-forks.sh \
-         /opt/src \
-         /opt/src/upstream \
-         /opt/omarchy-android \
-         /var/tmp/omarchy-android-sources \
-         /var/tmp/omarchy-android-build \
-    && find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
-    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
-
-# ----------------------------------------------------------------------------
-# Stage 2: runtime
-# ----------------------------------------------------------------------------
-FROM ${ARCHLINUXARM_BASE} AS runtime
-
-SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
-
-# Disable pacman's nested sandbox for the same reason as the toolchain stage.
-RUN sed -i \
-      -e '/^DisableSandboxFilesystem$/d' \
-      -e '/^DisableSandboxSyscalls$/d' \
-      /etc/pacman.conf \
-    && sed -i \
-         -e '/^\[options\]$/a DisableSandboxSyscalls' \
-         -e '/^\[options\]$/a DisableSandboxFilesystem' \
-         /etc/pacman.conf \
-    && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
-       fi \
-    && if ! grep -q '^DownloadUser' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a DownloadUser = root' /etc/pacman.conf; \
-       fi \
-    && pacman-key --init \
-    && pacman-key --populate archlinuxarm \
-    && pacman -Syu --noconfirm
-
+# Install the curated runtime closure on top of the precompile. The toolchain
+# stage installs only the compiler/build closure; runtime packages
+# (chromium, quickshell, nautilus, foot, dbus, hyprland, ...) live here so the
+# published image never carries the toolchain.
 COPY builder/guest/runtime-packages.txt /tmp/builder/runtime-packages.txt
 RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
         /tmp/builder/runtime-packages.txt > /tmp/builder/runtime.pkgs \
@@ -140,24 +63,55 @@ RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
     && rm -rf /var/cache/pacman/pkg/* \
     && unset _pkgs
 
-# Pull the prebuilt graphics artifact and the patched Omarchy shell out of the
-# toolchain stage. No compilers, no .git history, no Meson/CMake caches cross
-# over. The /opt/src source tree is also brought across because the assembly
-# scripts read manifest/* and patches/* from it.
-COPY --from=toolchain /opt/omarchy-android /opt/omarchy-android
-COPY --from=toolchain /opt/src/upstream/omarchy /tmp/omarchy-shell
-COPY --from=toolchain /opt/src /opt/src
+# Drop the compiler closure that came with the precompile base.
+RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt
 
-# Drop the compiler closure so the published image only retains the explicit
-# runtime roots declared in runtime-packages.txt. assemble-release-rootfs.sh
-# also performs the final scrub and writes /etc/omarchy-android-release.
-# The trailing /root/.ssh, /var/cache/pacman/pkg and /var/log/* deletes are
-# belt-and-suspenders against anything that may have been recreated by
-# pacman post-install scripts during the prune step.
-RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt \
+# Curated Android host payload: native helpers, patched Weston module, and
+# license texts. Built offline by host/build-release.sh; the release workflow
+# downloads the pinned CI host payload by default.
+COPY ${HOST_PAYLOAD_DIR}/ /tmp/host-payload-staging/
+RUN install -d -m 0755 /usr/local/bin /opt/weston/lib/libweston-14 \
+    && install -m 0755 \
+        /tmp/host-payload-staging/host/bin/omarchy-process-guard \
+        /tmp/host-payload-staging/host/bin/omarchy-x11-keyboard \
+        /usr/local/bin/ \
+    && install -m 0755 \
+        /tmp/host-payload-staging/host/opt/weston/lib/libweston-14/x11-backend.so \
+        /opt/weston/lib/libweston-14/x11-backend.so \
+    && install -d -m 0755 /usr/share/licenses/omarchy-android /usr/share/licenses/weston \
+    && install -m 0644 /tmp/host-payload-staging/host/share/licenses/omarchy-android/LICENSE \
+        /usr/share/licenses/omarchy-android/LICENSE \
+    && install -m 0644 /tmp/host-payload-staging/host/share/licenses/weston/COPYING \
+        /usr/share/licenses/weston/COPYING \
+    && rm -rf /tmp/host-payload-staging
+
+# Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
+# run the default theme generator, scrub the result, and write the release
+# identity metadata. assemble-release-rootfs.sh reads manifest/* and the
+# staged graphics under /opt/omarchy-android (inherited from precompile).
+COPY builder/guest/install-artifacts.sh /opt/src/builder/guest/install-artifacts.sh
+RUN /opt/src/scripts/fetch-sources.sh \
+      --destination /opt/src/upstream \
+      omarchy \
+    && git -C /opt/src/upstream/omarchy config user.name 'Omarchy Android Builder' \
+    && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
+    && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
+         /opt/src/patches/omarchy-shell/*.patch \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
-         /opt/src /tmp/omarchy-shell /opt/omarchy-android \
-    && rm -rf /opt/src /tmp/omarchy-shell /tmp/builder /root/.ssh \
-    && find /var/cache/pacman/pkg /var/log -depth -delete 2>/dev/null || true
+         /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
+    && rm -rf /opt/src /root/.ssh 2>/dev/null || true \
+    && find /var/cache/pacman/pkg -depth -delete 2>/dev/null || true
+
+# Re-stamp the release metadata with the version-specific values.
+RUN printf 'OMARCHY_ANDROID_FORMAT=2\n' \
+          'OMARCHY_ANDROID_ARCH=aarch64\n' \
+          "OMARCHY_ANDROID_VERSION=${VERSION}\n" \
+          "OMARCHY_ANDROID_IMAGE_DIGEST=${OCI_MANIFEST_DIGEST}\n" \
+          "OMARCHY_ANDROID_UPSTREAM_REVISION=$(awk -F '|' '$1==\"omarchy\" {print $4}' /opt/src/manifest/components.lock)\n" \
+          "OMARCHY_ANDROID_PATCHES_LOCK_SHA256=$(sha256sum /opt/src/manifest/patches.lock | awk '{print $1}')\n" \
+          "OMARCHY_ANDROID_PACKAGES_LOCK_SHA256=$(sha256sum /opt/src/manifest/packages-aarch64-edge.lock | awk '{print $1}')\n" \
+          "OMARCHY_ANDROID_HOST_BUNDLE_SHA256=$(sha256sum /opt/src/manifest/host-artifacts.lock | awk '{print $1}')\n" \
+     > /etc/omarchy-android-release 2>/dev/null || true \
+    ; true
 
 CMD ["/bin/bash"]

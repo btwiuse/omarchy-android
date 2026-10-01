@@ -20,9 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish installable release
-    runs-on: ubuntu-24.04
+  image:
+    name: Build the release image on top of :precompile
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
       - name: Check out tagged release source
@@ -47,17 +47,16 @@ jobs:
           else
             precompile_tag="precompile"
           fi
-          printf 'precompile_tag=%s\n' "$precompile_tag" >> "$GITHUB_OUTPUT"
-          printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
-          # The version tag is the X.Y.Z label from the release tag. We push
-          # that as an immutable OCI reference so the lock pins to a real tag,
-          # not the rolling ':precompile' that may move on.
           version="${VERSION_REF#v}"
           if [[ -n "$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$version" >> "$GITHUB_OUTPUT"
+            version_tag="$version"
           else
-            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
+            version_tag="$precompile_tag"
           fi
+          printf 'precompile_tag=%s\n' "$precompile_tag" >> "$GITHUB_OUTPUT"
+          printf 'precompile_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$version_tag" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
@@ -66,74 +65,128 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull the precompile image, tag it for this version, and save as OCI tarball
+      - name: Pull the precompile image and capture its digest
         env:
+          PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
+        run: |
+          docker pull --platform linux/arm64 "$PRECOMPILE_REFERENCE"
+          precompile_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$PRECOMPILE_REFERENCE" | sed -e 's/^[^@]*@//')"
+          printf 'precompile_digest=%s\n' "$precompile_digest" >> "$GITHUB_ENV"
+
+      - name: Download the host payload archive
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          VERSION_REF: ${{ github.ref_name }}
+        run: |
+          mkdir -p image-output host-payload
+          host_record="$(awk -F '|' '$1=="android-host" {print; found=1; exit} END {if (!found) exit 1}' "$GITHUB_WORKSPACE/manifest/host-artifacts.lock")"
+          IFS='|' read -r _ _ host_url host_sha256 _ <<<"$host_record"
+          host_archive="$WORKSPACE/${host_url##*/}"
+          curl --fail --location --retry 3 --output "$host_archive" "$host_url"
+          actual_sha="$(sha256sum "$host_archive" | awk '{print $1}')"
+          [[ "$actual_sha" == "$host_sha256" ]] \
+            || { echo "Host payload checksum mismatch" >&2; exit 1; }
+          tar -xf "$host_archive" -C host-payload
+          # The archive lands with host/bin, host/opt, etc. at the top level.
+          # assemble-bundle.sh on the CI side expects the same shape under
+          # the IMAGE_OUTPUT directory; for the Dockerfile.build path we
+          # need it staged at /tmp/host-payload with the inner host/ subdir.
+          rm -rf host-payload-staging
+          mkdir -p host-payload-staging
+          cp -a host-payload/. host-payload-staging/
+          rm -rf host-payload
+
+      - name: Build the release image on top of :precompile
+        env:
+          PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
+          PRECOMPILE_DIGEST: ${{ env.precompile_digest }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
         run: |
-          mkdir -p image-output
-          docker pull "$OCI_REFERENCE"
-          docker save -o image-output/precompile.oci.tar "$OCI_REFERENCE"
+          docker buildx build \
+              --platform linux/arm64 \
+              --pull=false \
+              --tag "$OCI_REFERENCE" \
+              --build-arg "PRECOMPILE_IMAGE=$PRECOMPILE_REFERENCE" \
+              --build-arg "HOST_PAYLOAD_DIR=$GITHUB_WORKSPACE/host-payload-staging" \
+              --build-arg "VERSION=$VERSION" \
+              --build-arg "OCI_MANIFEST_DIGEST=$PRECOMPILE_DIGEST" \
+              --label "org.opencontainers.image.title=Omarchy Android" \
+              --label "org.opencontainers.image.version=$VERSION" \
+              --file builder/ci/Dockerfile.release \
+              "$GITHUB_WORKSPACE"
+          docker push "$OCI_REFERENCE"
           published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$OCI_REFERENCE" | sed -e 's/^[^@]*@//')"
-          printf 'published_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
-          # Push an immutable X.Y.Z tag that survives even when ':precompile' moves.
-          docker tag "$OCI_REFERENCE" "$VERSION_TAG"
-          docker push "$VERSION_TAG"
-          printf 'oci_reference=%s\n' "$VERSION_TAG" >> "$GITHUB_ENV"
+          printf 'oci_manifest_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
 
-      - name: Verify OCI tarball layout
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          rm -f oci-members.txt
-          tar -tf image-output/precompile.oci.tar > oci-members.txt
-          for required in oci-layout index.json manifest.json; do
-            tar -tf image-output/precompile.oci.tar | grep -qxF "$required" \
-              || { printf 'OCI tarball missing %s\n' "$required" >&2; exit 1; }
-          done
-          rm oci-members.txt
-
-      - name: Assemble host payload bundle
-        env:
-          VERSION: ${{ github.ref_name }}
-          OCI_REFERENCE: ${{ steps.resolve.outputs.version_tag }}
-          OCI_REPOSITORY: ${{ steps.resolve.outputs.version_tag }}
-          OCI_MANIFEST_DIGEST: ${{ env.published_digest }}
+      - name: Export the published image as an OCI tarball
         run: |
           mkdir -p image-output
-          base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
-          base_tag="$(awk -F'|' '$1=="archlinuxarm" {print $3}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
-          base_manifest="$(awk -F'|' '$1=="archlinuxarm" {print $4}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
-          base_layer="$(awk -F'|' '$1=="archlinuxarm" {print $5}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
-          printf 'format=2\nversion=${VERSION#v}\narchitecture=aarch64\n' > image-output/IMAGE-MANIFEST
-          printf 'oci_repository=%s\n' "${OCI_REPOSITORY%%:*}" >> image-output/IMAGE-MANIFEST
-          printf 'oci_reference=%s\n' "$OCI_REFERENCE" >> image-output/IMAGE-MANIFEST
-          printf 'oci_manifest_digest=%s\n' "$OCI_MANIFEST_DIGEST" >> image-output/IMAGE-MANIFEST
-          printf 'base_repository=%s\n' "$base_repository" >> image-output/IMAGE-MANIFEST
-          printf 'base_tag=%s\n' "$base_tag" >> image-output/IMAGE-MANIFEST
-          printf 'base_manifest=%s\n' "$base_manifest" >> image-output/IMAGE-MANIFEST
-          printf 'base_layer=%s\n' "$base_layer" >> image-output/IMAGE-MANIFEST
-          ./builder/ci/assemble-bundle.sh \
-            "${VERSION#v}" \
-            "image-output" \
-            "$GITHUB_WORKSPACE/.work/ci-release-${VERSION#v}"
+          docker save -o image-output/release.oci.tar "$OCI_REFERENCE"
 
-      - name: Upload host payload bundle
+      - name: Upload release image and host payload as artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: omarchy-android-release-${{ github.ref_name }}
-          path: .work/ci-release-${{ github.ref_name }}/
+          name: omarchy-android-release-${{ steps.resolve.outputs.version }}
+          path: |
+            image-output/release.oci.tar
+            host-payload-staging/
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
 
+  publish:
+    name: Publish GH release and lock
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: omarchy-android-release-${{ needs.image.outputs.version }}
+          path: release/
+
+      - name: Verify OCI tarball layout
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          for required in oci-layout index.json manifest.json; do
+            tar -tf release/release.oci.tar | grep -qxF "$required" \
+              || { printf 'OCI tarball missing %s\n' "$required" >&2; exit 1; }
+          done
+
+      - name: Assemble the host bundle
+        env:
+          VERSION: ${{ needs.image.outputs.version }}
+          OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
+          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.oci_manifest_digest }}
+        run: |
+          mkdir -p release
+          base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_tag="$(awk -F'|' '$1=="archlinuxarm" {print $3}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_manifest="$(awk -F'|' '$1=="archlinuxarm" {print $4}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_layer="$(awk -F'|' '$1=="archlinuxarm" {print $5}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          printf 'format=2\nversion=%s\narchitecture=aarch64\n' "$VERSION" > release/IMAGE-MANIFEST
+          printf 'oci_repository=%s\n' "${OCI_REFERENCE%:*}" >> release/IMAGE-MANIFEST
+          printf 'oci_reference=%s\n' "$OCI_REFERENCE" >> release/IMAGE-MANIFEST
+          printf 'oci_manifest_digest=%s\n' "$OCI_MANIFEST_DIGEST" >> release/IMAGE-MANIFEST
+          printf 'base_repository=%s\n' "$base_repository" >> release/IMAGE-MANIFEST
+          printf 'base_tag=%s\n' "$base_tag" >> release/IMAGE-MANIFEST
+          printf 'base_manifest=%s\n' "$base_manifest" >> release/IMAGE-MANIFEST
+          printf 'base_layer=%s\n' "$base_layer" >> release/IMAGE-MANIFEST
+          ./builder/ci/assemble-bundle.sh \
+            "$VERSION" \
+            release/ \
+            "$GITHUB_WORKSPACE/.work/ci-release-$VERSION"
+
       - name: Publish host payload as a GitHub Release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.image.outputs.version }}
         run: |
-          tag="v${VERSION#v}"
-          asset="omarchy-android-host-aarch64-${VERSION#v}.tar.xz"
-          bundle="$GITHUB_WORKSPACE/.work/ci-release-${VERSION#v}/$asset"
+          tag="v$VERSION"
+          asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
+          bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
           sidecar="$bundle.sha256"
           bundle_sha256="$(sha256sum "$bundle")"
           bundle_sha256="${bundle_sha256%% *}"
@@ -178,8 +231,10 @@ jobs:
 
       - name: Point the installer at the published release
         env:
-          VERSION: ${{ github.ref_name }}
-          HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ github.ref_name }}.tar.xz
+          VERSION: ${{ needs.image.outputs.version }}
+          OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
+          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.oci_manifest_digest }}
+          HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ needs.image.outputs.version }}.tar.xz
         run: |
           default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
             | sed 's|^origin/||')"
@@ -187,7 +242,7 @@ jobs:
           git fetch --depth 1 origin "$default_branch"
           git switch --force-create "$default_branch" "origin/$default_branch"
           ./scripts/update-release-lock.sh \
-            "${VERSION#v}" \
+            "$VERSION" \
             "$GITHUB_REPOSITORY" \
             "$oci_reference" \
             "$oci_manifest_digest" \
@@ -199,5 +254,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "Point installer at ${VERSION}"
+          git commit -m "Point installer at v$VERSION"
           git push origin "HEAD:$default_branch"

@@ -64,7 +64,7 @@ docker build \
   --label "org.opencontainers.image.title=Omarchy Android" \
   --label "org.opencontainers.image.version=$version" \
   --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}" \
-  --file "$ROOT/builder/ci/Dockerfile.release" \
+  --file "$ROOT/builder/ci/Dockerfile.toolchain" \
   "$ROOT"
 image_built=1
 
