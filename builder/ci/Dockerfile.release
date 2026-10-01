@@ -123,15 +123,15 @@ RUN /opt/src/scripts/fetch-sources.sh \
     && find /var/cache/pacman/pkg -depth -delete 2>/dev/null || true
 
 # Re-stamp the release metadata with the version-specific values.
-RUN printf 'OMARCHY_ANDROID_FORMAT=2\n' \
-          'OMARCHY_ANDROID_ARCH=aarch64\n' \
-          "OMARCHY_ANDROID_VERSION=${VERSION}\n" \
-          "OMARCHY_ANDROID_IMAGE_DIGEST=${OCI_MANIFEST_DIGEST}\n" \
-          "OMARCHY_ANDROID_UPSTREAM_REVISION=$(awk -F '|' '$1==\"omarchy\" {print $4}' /opt/src/manifest/components.lock)\n" \
-          "OMARCHY_ANDROID_PATCHES_LOCK_SHA256=$(sha256sum /opt/src/manifest/patches.lock | awk '{print $1}')\n" \
-          "OMARCHY_ANDROID_PACKAGES_LOCK_SHA256=$(sha256sum /opt/src/manifest/packages-aarch64-edge.lock | awk '{print $1}')\n" \
-          "OMARCHY_ANDROID_HOST_BUNDLE_SHA256=$(sha256sum /opt/src/manifest/host-artifacts.lock | awk '{print $1}')\n" \
-     > /etc/omarchy-android-release 2>/dev/null || true \
-    ; true
+RUN set +e \
+    && OMARCHY_VERSION_LINE="OMARCHY_ANDROID_VERSION=${VERSION}" \
+    && OMARCHY_DIGEST_LINE="OMARCHY_ANDROID_IMAGE_DIGEST=${OCI_MANIFEST_DIGEST}" \
+    && OMARCHY_REVISION_LINE="OMARCHY_ANDROID_UPSTREAM_REVISION=$(awk -F '|' "\$1==\"omarchy\" {print \$4}" /opt/src/manifest/components.lock)" \
+    && OMARCHY_PATCHES_LINE="OMARCHY_ANDROID_PATCHES_LOCK_SHA256=$(sha256sum /opt/src/manifest/patches.lock | awk '{print \$1}')" \
+    && OMARCHY_PACKAGES_LINE="OMARCHY_ANDROID_PACKAGES_LOCK_SHA256=$(sha256sum /opt/src/manifest/packages-aarch64-edge.lock | awk '{print \$1}')" \
+    && OMARCHY_HOST_LINE="OMARCHY_ANDROID_HOST_BUNDLE_SHA256=$(sha256sum /opt/src/manifest/host-artifacts.lock | awk '{print \$1}')" \
+    && printf 'OMARCHY_ANDROID_FORMAT=2\nOMARCHY_ANDROID_ARCH=aarch64\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+        "$OMARCHY_VERSION_LINE" "$OMARCHY_DIGEST_LINE" "$OMARCHY_REVISION_LINE" "$OMARCHY_PATCHES_LINE" "$OMARCHY_PACKAGES_LINE" "$OMARCHY_HOST_LINE" \
+        > /etc/omarchy-android-release
 
 CMD ["/bin/bash"]
