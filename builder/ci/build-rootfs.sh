@@ -14,7 +14,7 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-version="${1:-edge}"
+version="${1:-precompile}"
 image_tag="${OMARCHY_CI_IMAGE_TAG:-omarchy-android-ci:${version}}"
 oci_record="$(awk -F '|' '$1 == "archlinuxarm" { print; found=1; exit } END { if (!found) exit 1 }' \
   "$ROOT/manifest/oci-images.lock")"
