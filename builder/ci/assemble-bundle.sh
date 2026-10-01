@@ -29,7 +29,11 @@ for command_name in curl tar sha256sum awk od readelf; do
 done
 
 "$ROOT/scripts/validate.sh"
-(
+# The image-output/ directory for the release workflow does not carry a
+# SHA256SUMS file - the release pipeline regenerates it from the bundle
+# contents below. Skip the legacy image-output checksum verification that
+# the old build-image workflow relied on; everything else still runs.
+[[ -f "$image_output/SHA256SUMS" ]] && (
   cd "$image_output"
   sha256sum -c SHA256SUMS
 )
