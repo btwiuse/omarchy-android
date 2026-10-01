@@ -66,8 +66,14 @@ RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
     && unset _pkgs
 
 # Project source for the build-time scripts and pinned manifest lock files.
+# Each directory is copied with a trailing slash so the directory names are
+# preserved (COPY on a directory copies its CONTENTS, not the directory).
 WORKDIR /opt/src
-COPY manifest patches builder scripts licenses /opt/src/
+COPY manifest /opt/src/manifest/
+COPY patches /opt/src/patches/
+COPY builder /opt/src/builder/
+COPY scripts /opt/src/scripts/
+COPY licenses /opt/src/licenses/
 
 ENV OMARCHY_BUILD_JOBS=4
 
