@@ -31,7 +31,10 @@ if getent passwd omarchy >/dev/null; then
   exit 1
 fi
 
-useradd --create-home --uid 1000 --user-group --shell /bin/bash \
+# The btwiuse/arch:base image already ships a non-omarchy user at UID 1000.
+# Allow duplicate UID here so the omarchy user still lands on 1000 — the
+# chowns later in this script rely on it.
+useradd --create-home --uid 1000 -o --user-group --shell /bin/bash \
   --comment Omarchy omarchy
 
 install -d -m 0755 /usr/share/omarchy /opt/omarchy-android

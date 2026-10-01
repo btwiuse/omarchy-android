@@ -151,10 +151,13 @@ COPY --from=toolchain /opt/src /opt/src
 # Drop the compiler closure so the published image only retains the explicit
 # runtime roots declared in runtime-packages.txt. assemble-release-rootfs.sh
 # also performs the final scrub and writes /etc/omarchy-android-release.
+# The trailing /root/.ssh, /var/cache/pacman/pkg and /var/log/* deletes are
+# belt-and-suspenders against anything that may have been recreated by
+# pacman post-install scripts during the prune step.
 RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
          /opt/src /tmp/omarchy-shell /opt/omarchy-android \
-    && rm -rf /opt/src /tmp/omarchy-shell /tmp/builder \
-    && find /var/cache/pacman/pkg -depth -delete 2>/dev/null || true
+    && rm -rf /opt/src /tmp/omarchy-shell /tmp/builder /root/.ssh \
+    && find /var/cache/pacman/pkg /var/log -depth -delete 2>/dev/null || true
 
 CMD ["/bin/bash"]
