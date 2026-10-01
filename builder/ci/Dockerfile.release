@@ -68,12 +68,15 @@ RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
 # Project source for the build-time scripts and pinned manifest lock files.
 # Each directory is copied with a trailing slash so the directory names are
 # preserved (COPY on a directory copies its CONTENTS, not the directory).
+# lib/ is included so fetch-sources.sh and verify-patches.sh can source
+# lib/common.sh and lib/manifest.sh.
 WORKDIR /opt/src
 COPY manifest /opt/src/manifest/
 COPY patches /opt/src/patches/
 COPY builder /opt/src/builder/
 COPY scripts /opt/src/scripts/
 COPY licenses /opt/src/licenses/
+COPY lib /opt/src/lib/
 
 ENV OMARCHY_BUILD_JOBS=4
 
