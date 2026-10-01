@@ -6,6 +6,7 @@ OA_BUILD_DEPENDENCIES_LOCK="${PROJECT_ROOT:?}/manifest/build-dependencies.lock"
 OA_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/artifacts.lock"
 OA_HOST_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/host-artifacts.lock"
 OA_OCI_IMAGES_LOCK="${PROJECT_ROOT:?}/manifest/oci-images.lock"
+OA_RELEASE_LOCK="${PROJECT_ROOT:?}/manifest/release.lock"
 
 component_record() {
   local requested="$1"
@@ -233,4 +234,60 @@ validate_patch_lock() {
   done < <(find "$PROJECT_ROOT/patches" -type f -name '*.patch' -print0)
 
   ((failures == 0))
+}
+
+read_lock_field() {
+  local lock_file="$1"
+  local key="$2"
+  awk -F '=' -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found=1; exit} END {if (!found) exit 1}' \
+    "$lock_file"
+}
+
+validate_release_lock() {
+  local format="" failures=0
+  [[ -f "$OA_RELEASE_LOCK" ]] || {
+    printf '%s: missing release lock\n' "$OA_RELEASE_LOCK" >&2
+    return 1
+  }
+  format="$(read_lock_field "$OA_RELEASE_LOCK" format 2>/dev/null || true)"
+  case "$format" in
+    1)
+      for key in version tag asset url sha256; do
+        if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
+          printf '%s: missing required field %s for format=1\n' "$OA_RELEASE_LOCK" "$key" >&2
+          failures=$((failures + 1))
+        fi
+      done
+      ;;
+    2)
+      for key in version tag oci_reference oci_manifest_digest \
+                 host_bundle_asset host_bundle_url host_bundle_sha256; do
+        if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
+          printf '%s: missing required field %s for format=2\n' "$OA_RELEASE_LOCK" "$key" >&2
+          failures=$((failures + 1))
+        fi
+      done
+      local oci_digest oci_ref host_sha
+      oci_digest="$(read_lock_field "$OA_RELEASE_LOCK" oci_manifest_digest)"
+      oci_ref="$(read_lock_field "$OA_RELEASE_LOCK" oci_reference)"
+      host_sha="$(read_lock_field "$OA_RELEASE_LOCK" host_bundle_sha256)"
+      [[ "$oci_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+        printf '%s: oci_manifest_digest is not sha256:<hex64>\n' "$OA_RELEASE_LOCK" >&2
+        failures=$((failures + 1))
+      }
+      [[ "$oci_ref" =~ ^[A-Za-z0-9._/-]+(:[0-9]+)?(/[A-Za-z0-9._/-]+)*:[A-Za-z0-9._-]+$ ]] || {
+        printf '%s: oci_reference is not a valid registry ref\n' "$OA_RELEASE_LOCK" >&2
+        failures=$((failures + 1))
+      }
+      [[ "$host_sha" =~ ^[0-9a-f]{64}$ ]] || {
+        printf '%s: host_bundle_sha256 is not a SHA-256\n' "$OA_RELEASE_LOCK" >&2
+        failures=$((failures + 1))
+      }
+      ;;
+    *)
+      printf '%s: unsupported format=%s (expected 1 or 2)\n' "$OA_RELEASE_LOCK" "$format" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+  (( failures == 0 ))
 }

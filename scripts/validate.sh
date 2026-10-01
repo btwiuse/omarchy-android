@@ -50,6 +50,7 @@ validate_artifact_lock
 validate_host_artifact_lock
 validate_oci_image_lock
 validate_patch_lock
+validate_release_lock
 
 for package_inventory in \
   "$ROOT/manifest/packages-aarch64-0.1.0.lock:555" \
@@ -79,4 +80,5 @@ done
 
 "$ROOT/tests/options.sh"
 "$ROOT/tests/runtime.sh"
+"$ROOT/tests/lock-format.sh"
 printf 'validation passed\n'
