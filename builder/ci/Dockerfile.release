@@ -15,11 +15,13 @@
 # Build context: the project root.
 # Required build args:
 #   PRECOMPILE_REFERENCE = full reference, e.g. ghcr.io/owner/repo:precompile
-#   HOST_PAYLOAD_DIR    = path inside the context that holds the host payload
-#                          archive (built by host/build-release.sh)
 #   OCI_MANIFEST_DIGEST  = sha256 digest the install lock pins against
 # Optional build args:
 #   VERSION             = X.Y.Z release label (defaults to "precompile")
+#
+# The release workflow is expected to have extracted the host payload
+# archive into ./host-payload-staging/ in the build context before
+# invoking this Dockerfile.
 
 ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
 ARG PRECOMPILE_REFERENCE=ghcr.io/btwiuse/omarchy-android:precompile
@@ -27,14 +29,6 @@ ARG VERSION=precompile
 ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 # syntax=docker/dockerfile:1.7
-
-# Stage the host payload under a stable build-context path so the COPY
-# below does not depend on the value of HOST_PAYLOAD_DIR reaching the
-# buildkit parser intact (which has been a recurring source of empty-ARG
-# warnings). The release workflow extracts the host payload archive to
-# host-payload-staging/ in the build context, then this ARG just names
-# it.
-ARG HOST_PAYLOAD_DIR=./host-payload-staging
 
 # ----------------------------------------------------------------------------
 # Stage 1: pull the precompile image and expose its compiled artifact as
@@ -90,8 +84,9 @@ COPY --from=precompile /opt/omarchy-android /opt/omarchy-android
 COPY --from=precompile /opt/src/upstream/omarchy /opt/src/upstream/omarchy
 
 # Curated Android host payload: native helpers, patched Weston module, and
-# license texts.
-COPY ${HOST_PAYLOAD_DIR}/ /tmp/host-payload-staging/
+# license texts. The release workflow extracts the host payload archive to
+# ./host-payload-staging/ in the build context, which is what we COPY from.
+COPY host-payload-staging/ /tmp/host-payload-staging/
 RUN install -d -m 0755 /usr/local/bin /opt/weston/lib/libweston-14 \
     && install -m 0755 \
         /tmp/host-payload-staging/host/bin/omarchy-process-guard \
