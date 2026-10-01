@@ -169,7 +169,6 @@ jobs:
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
         run: |
-          set -x
           tag="v$VERSION"
           asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
           mkdir -p release
