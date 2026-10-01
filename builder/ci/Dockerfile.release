@@ -88,16 +88,21 @@ RUN /opt/src/scripts/fetch-sources.sh \
 
 # Build the compiled graphics stack against the staged Mesa so Hyprland and
 # Aquamarine always link to the exact Mesa userspace that ships in the image.
+# The artifact root is intentionally outside /opt because the base image
+# ships an empty /opt directory which build-from-local-forks.sh refuses to
+# reuse as a clean-build destination.
 RUN mkdir -p /opt/omarchy-android /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build \
     && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
        /opt/src/builder/guest/build-from-local-forks.sh \
          /opt/src \
          /opt/src/upstream \
-         /opt/omarchy-android \
+         /tmp/omarchy-android-artifacts \
          /var/tmp/omarchy-android-sources \
          /var/tmp/omarchy-android-build \
+    && install -d -m 0755 /opt/omarchy-android \
+    && cp -a /tmp/omarchy-android-artifacts/. /opt/omarchy-android/ \
     && find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
-    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
+    && rm -rf /tmp/omarchy-android-artifacts /var/cache/pacman/pkg/* /var/log/pacman.log
 
 # Drop the compiler closure so the published image only retains the explicit
 # runtime roots declared in runtime-packages.txt.
