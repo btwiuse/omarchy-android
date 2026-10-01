@@ -23,11 +23,18 @@
 
 ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
 ARG PRECOMPILE_REFERENCE=ghcr.io/btwiuse/omarchy-android:precompile
-ARG HOST_PAYLOAD_DIR=/tmp/host-payload
 ARG VERSION=precompile
 ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 
 # syntax=docker/dockerfile:1.7
+
+# Stage the host payload under a stable build-context path so the COPY
+# below does not depend on the value of HOST_PAYLOAD_DIR reaching the
+# buildkit parser intact (which has been a recurring source of empty-ARG
+# warnings). The release workflow extracts the host payload archive to
+# host-payload-staging/ in the build context, then this ARG just names
+# it.
+ARG HOST_PAYLOAD_DIR=./host-payload-staging
 
 # ----------------------------------------------------------------------------
 # Stage 1: pull the precompile image and expose its compiled artifact as
