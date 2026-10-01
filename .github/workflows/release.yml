@@ -133,6 +133,20 @@ jobs:
               --file builder/ci/Dockerfile.release \
               "$GITHUB_WORKSPACE"
           docker push "$release_reference"
+          # Mirror under a few well-known tags so pull URLs are stable and
+          # discoverable. :latest tracks the most recent release-built
+          # image; :release mirrors :main under a name that signals "the
+          # release pipeline built this"; :vX.Y.Z is only added when the
+          # run was triggered by a v-tag push.
+          docker tag "$release_reference" "${OCI_REFERENCE%:*}:latest"
+          docker push "${OCI_REFERENCE%:*}:latest"
+          docker tag "$release_reference" "${OCI_REFERENCE%:*}:release"
+          docker push "${OCI_REFERENCE%:*}:release"
+          if [[ "${VERSION_REF:-}" == v* ]]; then
+            vtag="${VERSION_REF}"
+            docker tag "$release_reference" "ghcr.io/${GITHUB_REPOSITORY}:${vtag}"
+            docker push "ghcr.io/${GITHUB_REPOSITORY}:${vtag}"
+          fi
           published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$release_reference" | sed -e 's/^[^@]*@//')"
           printf 'release_image_digest=%s\n' "$published_digest" >> "$GITHUB_OUTPUT"
           printf 'release_reference=%s\n' "$release_reference" >> "$GITHUB_OUTPUT"
