@@ -29,7 +29,9 @@ jobs:
       version_tag: ${{ steps.resolve.outputs.version_tag }}
       version: ${{ steps.resolve.outputs.version }}
       oci_reference: ${{ steps.resolve.outputs.oci_reference }}
-      image_manifest_digest: ${{ steps.precompile.outputs.precompile_digest }}
+      precompile_digest: ${{ steps.precompile.outputs.precompile_digest }}
+      release_image_digest: ${{ steps.build.outputs.release_image_digest }}
+      release_reference: ${{ steps.build.outputs.release_reference }}
     steps:
       - name: Check out tagged release source
         uses: actions/checkout@v7
@@ -104,6 +106,7 @@ jobs:
           tar -xf "$host_archive" -C host-payload-staging
 
       - name: Build the release image on top of :precompile
+        id: build
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
           PRECOMPILE_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
@@ -130,8 +133,8 @@ jobs:
               "$GITHUB_WORKSPACE"
           docker push "$release_reference"
           published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$release_reference" | sed -e 's/^[^@]*@//')"
-          printf 'oci_manifest_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
-          printf 'release_reference=%s\n' "$release_reference" >> "$GITHUB_ENV"
+          printf 'release_image_digest=%s\n' "$published_digest" >> "$GITHUB_OUTPUT"
+          printf 'release_reference=%s\n' "$release_reference" >> "$GITHUB_OUTPUT"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v7
@@ -153,6 +156,11 @@ jobs:
         with:
           name: omarchy-android-release-${{ needs.image.outputs.version_tag }}
           path: release/
+
+      - name: Check out tagged release source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Assemble the host bundle
         env:
