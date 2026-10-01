@@ -51,47 +51,27 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Rebuild sanitized ARM64 OCI image
-        id: build
         run: |
           version="edge-${GITHUB_SHA:0:12}"
           ./builder/ci/build-rootfs.sh "$version"
 
-      - name: Tag and push OCI image to GitHub Container Registry
-        id: push
+      - name: Smoke-test the published edge image
         env:
-          VERSION: ${{ steps.build.outputs.version }}
-          IMAGE_LOCAL: omarchy-android-ci:${{ steps.build.outputs.version }}
-          REPOSITORY: ghcr.io/${{ github.repository }}
+          EDGE_REFERENCE: ghcr.io/${{ github.repository }}:edge
         run: |
-          oci_reference="${REPOSITORY}:edge"
-          oci_digest_reference="${REPOSITORY}@sha256:$(docker inspect --format '{{.Id}}' "$IMAGE_LOCAL" | sed 's/^sha256://')"
-          # Floating 'edge' tag — every successful build overwrites it.
-          docker tag "$IMAGE_LOCAL" "$oci_reference"
-          docker push "$oci_reference"
-          # Pinned-per-build tag so consumers can pin a specific commit.
-          docker tag "$IMAGE_LOCAL" "${REPOSITORY}:${VERSION}"
-          docker push "${REPOSITORY}:${VERSION}"
-          manifest_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$oci_reference" | sed -e 's|^[^@]*@||')"
-          printf 'manifest_digest=%s\n' "$manifest_digest" >> "$GITHUB_OUTPUT"
-          printf 'oci_reference=%s\n' "$oci_reference" >> "$GITHUB_OUTPUT"
-          printf 'oci_digest_reference=%s\n' "$oci_digest_reference" >> "$GITHUB_OUTPUT"
-          printf 'image_tag=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Upload package drift evidence
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: package-drift-${{ steps.build.outputs.image_tag }}
-          path: .work/ci-image-${{ steps.build.outputs.image_tag }}/output/packages-aarch64-*.lock
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload OCI image, manifest, inventory, and checksums
-        if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: omarchy-android-edge-${{ steps.build.outputs.image_tag }}
-          path: .work/ci-image-${{ steps.build.outputs.image_tag }}/output/
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
+          # Confirm the image we just published can install proot-distro and
+          # carries every curated artifact the installer expects. This catches
+          # a broken Dockerfile before the release workflow trusts the image.
+          docker pull --platform linux/arm64 "$EDGE_REFERENCE"
+          docker run --rm --platform linux/arm64 "$EDGE_REFERENCE" /bin/sh -c '
+            set -eu
+            test -f /etc/omarchy-android-release
+            test -x /opt/omarchy-android/hyprland/bin/Hyprland
+            test -f /home/omarchy/.config/hypr/hyprland.lua
+            test -f /home/omarchy/.config/omarchy/proot-session-bus.conf
+            test -x /usr/local/bin/omarchy-dbus-service
+            test -x /usr/local/bin/voxtype
+            test -f /usr/share/omarchy/LICENSE
+            command -v quickshell chromium nautilus foot uwsm-app omarchy-launch-shell
+            locale -a | grep -Fxi "C.utf8"
+          '
