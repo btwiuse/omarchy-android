@@ -139,7 +139,8 @@ jobs:
           # disk to verify the bundle against the expected runtime closure.
           docker run --rm --platform linux/arm64 "$release_reference" \
               /bin/sh -c 'pacman -Q | LC_ALL=C sort' \
-              > image-output/packages-aarch64-$VERSION.lock
+              > image-output/packages-aarch64-$VERSION.lock \
+            || { echo 'failed to extract package inventory' >&2; exit 1; }
           # Mirror under stable, well-known names so install URLs are easy
           # to spell. :latest tracks the most recent release-built image;
           # :release mirrors :main under a name that signals "the release
