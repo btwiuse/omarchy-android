@@ -1,0 +1,202 @@
+name: Publish installable release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      edge_tag:
+        description: 'Specific edge build to release from (e.g. edge-abc123def0). Defaults to :edge.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: arm64-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish installable release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out tagged release source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve edge image reference
+        id: resolve
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUESTED_TAG: ${{ inputs.edge_tag }}
+          VERSION_REF: ${{ github.ref_name }}
+        run: |
+          # The build-edge workflow pushes two GHCR tags: a floating ':edge'
+          # and a per-build pinned 'edge-<sha>'. By default we publish from the
+          # rolling ':edge'; a workflow_dispatch run can pin to a specific
+          # edge build by passing edge_tag.
+          if [[ -n "${REQUESTED_TAG:-}" ]]; then
+            edge_tag="$REQUESTED_TAG"
+          else
+            edge_tag="edge"
+          fi
+          printf 'edge_tag=%s\n' "$edge_tag" >> "$GITHUB_OUTPUT"
+          printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$edge_tag" >> "$GITHUB_OUTPUT"
+          # The version tag is the X.Y.Z label from the release tag. We push
+          # that as an immutable OCI reference so the lock pins to a real tag,
+          # not the rolling ':edge' that may move on.
+          version="${VERSION_REF#v}"
+          if [[ -n "$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$version" >> "$GITHUB_OUTPUT"
+          else
+            printf 'version_tag=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$edge_tag" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the edge image, tag it for this version, and save as OCI tarball
+        env:
+          OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
+          VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
+        run: |
+          mkdir -p image-output
+          docker pull "$OCI_REFERENCE"
+          docker save -o image-output/edge.oci.tar "$OCI_REFERENCE"
+          published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$OCI_REFERENCE" | sed -e 's/^[^@]*@//')"
+          printf 'published_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
+          # Push an immutable X.Y.Z tag that survives even when ':edge' moves.
+          docker tag "$OCI_REFERENCE" "$VERSION_TAG"
+          docker push "$VERSION_TAG"
+          printf 'oci_reference=%s\n' "$VERSION_TAG" >> "$GITHUB_ENV"
+
+      - name: Verify OCI tarball layout
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          rm -f oci-members.txt
+          tar -tf image-output/edge.oci.tar > oci-members.txt
+          for required in oci-layout index.json manifest.json; do
+            tar -tf image-output/edge.oci.tar | grep -qxF "$required" \
+              || { printf 'OCI tarball missing %s\n' "$required" >&2; exit 1; }
+          done
+          rm oci-members.txt
+
+      - name: Assemble host payload bundle
+        env:
+          VERSION: ${{ github.ref_name }}
+          OCI_REFERENCE: ${{ steps.resolve.outputs.version_tag }}
+          OCI_REPOSITORY: ${{ steps.resolve.outputs.version_tag }}
+          OCI_MANIFEST_DIGEST: ${{ env.published_digest }}
+        run: |
+          mkdir -p image-output
+          base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_tag="$(awk -F'|' '$1=="archlinuxarm" {print $3}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_manifest="$(awk -F'|' '$1=="archlinuxarm" {print $4}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          base_layer="$(awk -F'|' '$1=="archlinuxarm" {print $5}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
+          printf 'format=2\nversion=${VERSION#v}\narchitecture=aarch64\n' > image-output/IMAGE-MANIFEST
+          printf 'oci_repository=%s\n' "${OCI_REPOSITORY%%:*}" >> image-output/IMAGE-MANIFEST
+          printf 'oci_reference=%s\n' "$OCI_REFERENCE" >> image-output/IMAGE-MANIFEST
+          printf 'oci_manifest_digest=%s\n' "$OCI_MANIFEST_DIGEST" >> image-output/IMAGE-MANIFEST
+          printf 'base_repository=%s\n' "$base_repository" >> image-output/IMAGE-MANIFEST
+          printf 'base_tag=%s\n' "$base_tag" >> image-output/IMAGE-MANIFEST
+          printf 'base_manifest=%s\n' "$base_manifest" >> image-output/IMAGE-MANIFEST
+          printf 'base_layer=%s\n' "$base_layer" >> image-output/IMAGE-MANIFEST
+          ./builder/ci/assemble-bundle.sh \
+            "${VERSION#v}" \
+            "image-output" \
+            "$GITHUB_WORKSPACE/.work/ci-release-${VERSION#v}"
+
+      - name: Upload host payload bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: omarchy-android-release-${{ github.ref_name }}
+          path: .work/ci-release-${{ github.ref_name }}/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish host payload as a GitHub Release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          tag="v${VERSION#v}"
+          asset="omarchy-android-host-aarch64-${VERSION#v}.tar.xz"
+          bundle="$GITHUB_WORKSPACE/.work/ci-release-${VERSION#v}/$asset"
+          sidecar="$bundle.sha256"
+          bundle_sha256="$(sha256sum "$bundle")"
+          bundle_sha256="${bundle_sha256%% *}"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            for path in "$bundle" "$sidecar"; do
+              name="${path##*/}"
+              remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+                --jq ".assets[] | select(.name == \"$name\") | .digest")"
+              if [[ -z "$remote_digest" ]]; then
+                gh release upload "$tag" "$path" --repo "$GITHUB_REPOSITORY"
+              elif [[ "$remote_digest" != "sha256:$(sha256sum "$path" | awk '{print $1}')" ]]; then
+                printf 'Refusing to replace mismatched release asset %s.\n' "$name" >&2
+                exit 1
+              fi
+            done
+          else
+            notes_file="$(mktemp)"
+            cat > "$notes_file" <<EOF
+          Precompiled Omarchy Android $tag for ARM64 phones and tablets.
+
+          The guest rootfs is published as an OCI image; proot-distro fetches, verifies, and unpacks it directly from GitHub Container Registry. The host payload archive above contains only the Android-side helpers (Termux Weston module, two native helpers, licenses). The installer verifies both before use.
+
+          Users do not compile Mesa, Hyprland, Weston, or Omarchy. Follow the README from the top, then run the installer.
+
+          This is an unofficial port; upstream project licenses and trademarks remain with their owners.
+          EOF
+            gh release create "$tag" "$bundle" "$sidecar" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --latest \
+              --title "Omarchy Android $tag" \
+              --notes-file "$notes_file"
+            rm "$notes_file"
+          fi
+
+          remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq ".assets[] | select(.name == \"$asset\") | .digest")"
+          [[ "$remote_digest" == "sha256:$bundle_sha256" ]]
+          printf 'host_bundle_sha256=%s\n' "$bundle_sha256" >> "$GITHUB_ENV"
+          printf 'host_bundle_asset=%s\n' "$asset" >> "$GITHUB_ENV"
+
+      - name: Point the installer at the published release
+        env:
+          VERSION: ${{ github.ref_name }}
+          HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ github.ref_name }}.tar.xz
+        run: |
+          default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
+            | sed 's|^origin/||')"
+          : "${default_branch:=main}"
+          git fetch --depth 1 origin "$default_branch"
+          git switch --force-create "$default_branch" "origin/$default_branch"
+          ./scripts/update-release-lock.sh \
+            "${VERSION#v}" \
+            "$GITHUB_REPOSITORY" \
+            "$oci_reference" \
+            "$oci_manifest_digest" \
+            "$HOST_BUNDLE_ASSET" \
+            "$host_bundle_sha256"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add manifest/release.lock
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Point installer at ${VERSION}"
+          git push origin "HEAD:$default_branch"
