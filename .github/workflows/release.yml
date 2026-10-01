@@ -85,6 +85,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull the precompile image and capture its digest
+        id: precompile
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
         run: |
