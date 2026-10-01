@@ -52,15 +52,23 @@ jobs:
           else
             precompile_tag="precompile"
           fi
+          # The release workflow pushes its output under a separate tag so
+          # it never overwrites the precompile artifact the next build
+          # uses as input. For a tagged release (vX.Y.Z) we use the bare
+          # semver so the installer's release.lock pins a real tag.
+          # For a workflow_dispatch run we use 'main' (or whatever the
+          # caller pushed) so the rolling branch tag tracks the latest
+          # release-built image.
           version="${VERSION_REF#v}"
           if [[ -n "$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             version_tag="$version"
           else
-            version_tag="$precompile_tag"
+            version_tag="$VERSION_REF"
           fi
           printf 'precompile_tag=%s\n' "$precompile_tag" >> "$GITHUB_OUTPUT"
           printf 'precompile_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$precompile_tag" >> "$GITHUB_OUTPUT"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'version_tag=%s\n' "$version_tag" >> "$GITHUB_OUTPUT"
           printf 'oci_reference=ghcr.io/%s:%s\n' "$GITHUB_REPOSITORY" "$version_tag" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
@@ -98,13 +106,19 @@ jobs:
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
           PRECOMPILE_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
+          VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
+          # The release image is the immutable X.Y.Z (or :main for non-tag
+          # pushes). Tag it locally under that ref so the release workflow
+          # does not have to overwrite the floating :precompile tag the
+          # precompile workflow uses as input.
+          release_reference="${OCI_REFERENCE%:*}:${VERSION_TAG}"
           docker buildx build \
               --platform linux/arm64 \
               --pull=false \
-              --tag "$OCI_REFERENCE" \
+              --tag "$release_reference" \
               --build-arg "ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64" \
               --build-arg "PRECOMPILE_REFERENCE=$PRECOMPILE_REFERENCE" \
               --build-arg "VERSION=$VERSION" \
@@ -113,14 +127,15 @@ jobs:
               --label "org.opencontainers.image.version=$VERSION" \
               --file builder/ci/Dockerfile.release \
               "$GITHUB_WORKSPACE"
-          docker push "$OCI_REFERENCE"
-          published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$OCI_REFERENCE" | sed -e 's/^[^@]*@//')"
+          docker push "$release_reference"
+          published_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$release_reference" | sed -e 's/^[^@]*@//')"
           printf 'oci_manifest_digest=%s\n' "$published_digest" >> "$GITHUB_ENV"
+          printf 'release_reference=%s\n' "$release_reference" >> "$GITHUB_ENV"
 
       - name: Export the published image as an OCI tarball
         run: |
           mkdir -p image-output
-          docker save -o image-output/release.oci.tar "$OCI_REFERENCE"
+          docker save -o image-output/release.oci.tar "${release_reference}"
 
       - name: Upload release image and host payload as artifacts
         uses: actions/upload-artifact@v7
