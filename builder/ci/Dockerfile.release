@@ -6,20 +6,19 @@
 # Actions (via `docker build`) and on-device Termux builders (via `proot-distro
 # build`).
 #
-# Build context must be the project root. The Dockerfile then:
+# Build context must be the project root. The Dockerfile runs in two stages:
 #
-#   1. Disables pacman's nested Landlock/seccomp sandbox and installs build +
-#      runtime packages.
-#   2. Fetches the pinned upstream sources and applies the reviewed Android
-#      patch series.
-#   3. Compiles Mesa, Aquamarine, and Hyprland against the staged Mesa userspace.
-#   4. Drops the compiler closure so the published image retains only the
-#      explicit runtime roots declared in runtime-packages.txt.
-#   5. Lays down the Omarchy shell, the graphics artifact, the curated Android
-#      guest runtime, the default theme, and the system-level service stubs.
-#   6. Scrubs package caches, logs, machine identity, shell history, and any
-#      Chromium browsing state.
-#   7. Writes /etc/omarchy-android-release recording the pinned revisions.
+#   toolchain: install compiler + runtime packages, fetch pinned upstream
+#     sources, apply the reviewed Android patch series, and compile Mesa,
+#     Aquamarine, and Hyprland against the staged Mesa userspace. Drop every
+#     compiler dependency before the stage ends.
+#
+#   runtime:   start from the same base, install only the explicit runtime
+#     roots, copy just the graphics artifact and the assembled project overlay
+#     out of the toolchain stage, lay down the Omarchy shell and the curated
+#     Android guest runtime, scrub the result, and write the release
+#     metadata. The compiler toolchain and the .git history of every
+#     component are never copied here.
 #
 # The base image is pinned by digest in manifest/oci-images.lock so a malicious
 # or stale tag cannot silently swap the build base.
@@ -28,10 +27,12 @@ ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base
 
 # syntax=docker/dockerfile:1.7
 
-FROM ${ARCHLINUXARM_BASE}
+# ----------------------------------------------------------------------------
+# Stage 1: toolchain
+# ----------------------------------------------------------------------------
+FROM ${ARCHLINUXARM_BASE} AS toolchain
 
-# Switch to bash with strict flags for the rest of the build. SHELL must come
-# after FROM in BuildKit.
+# Switch to bash with strict flags. SHELL must come after FROM in BuildKit.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker or
@@ -55,26 +56,30 @@ RUN sed -i \
     && pacman-key --populate archlinuxarm \
     && pacman -Syu --noconfirm
 
+# Build dependency set (compilers, headers, linkers, generators).
 COPY builder/guest/packages.txt /tmp/builder/packages.txt
-COPY builder/guest/runtime-packages.txt /tmp/builder/runtime-packages.txt
 RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
         /tmp/builder/packages.txt > /tmp/builder/build.pkgs \
-    && sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
-        /tmp/builder/runtime-packages.txt > /tmp/builder/runtime.pkgs \
-    && mapfile -t _pkgs < <(cat /tmp/builder/build.pkgs /tmp/builder/runtime.pkgs) \
+    && mapfile -t _pkgs < /tmp/builder/build.pkgs \
     && pacman -S --needed --noconfirm "${_pkgs[@]}" \
     && rm -rf /var/cache/pacman/pkg/* \
     && unset _pkgs
 
-# Pin the trusted upstream sources at the locked revisions and apply the
-# reviewed Android patch series. The project root is copied in wholesale so
-# `manifest/components.lock` and `manifest/patches.lock` are the single source
-# of truth for what gets compiled.
+# Project source for the build-time scripts and pinned manifest lock files.
 WORKDIR /opt/src
-COPY . /opt/src
+COPY manifest patches builder scripts licenses /opt/src/
 
 ENV OMARCHY_BUILD_JOBS=4
 
+# Trust the upstream checkouts the graphics builder reads from.
+RUN git config --global --add safe.directory /opt/src/upstream/mesa \
+    && git config --global --add safe.directory /opt/src/upstream/aquamarine \
+    && git config --global --add safe.directory /opt/src/upstream/hyprland
+
+# Compile Mesa+Aquamarine+Hyprland against the staged Mesa userspace. The
+# graphics artifact lands under /opt/omarchy-android and the source / build
+# scratch dirs are deleted before the stage ends. /opt/src/upstream/omarchy
+# is kept so runtime stage can copy the patched shell tree.
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       mesa aquamarine hyprland omarchy \
@@ -82,37 +87,65 @@ RUN /opt/src/scripts/fetch-sources.sh \
     && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
     && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
          /opt/src/patches/omarchy-shell/*.patch \
-    && git config --global --add safe.directory /opt/src/upstream/mesa \
-    && git config --global --add safe.directory /opt/src/upstream/aquamarine \
-    && git config --global --add safe.directory /opt/src/upstream/hyprland
-
-# Build the compiled graphics stack against the staged Mesa so Hyprland and
-# Aquamarine always link to the exact Mesa userspace that ships in the image.
-# build-from-local-forks.sh refuses to write into a path that already exists,
-# so do NOT pre-create the artifact, source, or build directories.
-RUN OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
+    && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
        /opt/src/builder/guest/build-from-local-forks.sh \
          /opt/src \
          /opt/src/upstream \
-         /tmp/omarchy-android-artifacts \
+         /opt/omarchy-android \
          /var/tmp/omarchy-android-sources \
          /var/tmp/omarchy-android-build \
-    && install -d -m 0755 /opt/omarchy-android \
-    && cp -a /tmp/omarchy-android-artifacts/. /opt/omarchy-android/ \
     && find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
-    && rm -rf /tmp/omarchy-android-artifacts /var/cache/pacman/pkg/* /var/log/pacman.log
+    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
+
+# ----------------------------------------------------------------------------
+# Stage 2: runtime
+# ----------------------------------------------------------------------------
+FROM ${ARCHLINUXARM_BASE} AS runtime
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# Disable pacman's nested sandbox for the same reason as the toolchain stage.
+RUN sed -i \
+      -e '/^DisableSandboxFilesystem$/d' \
+      -e '/^DisableSandboxSyscalls$/d' \
+      /etc/pacman.conf \
+    && sed -i \
+         -e '/^\[options\]$/a DisableSandboxSyscalls' \
+         -e '/^\[options\]$/a DisableSandboxFilesystem' \
+         /etc/pacman.conf \
+    && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
+         sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
+       fi \
+    && if ! grep -q '^DownloadUser' /etc/pacman.conf; then \
+         sed -i '/^\[options\]$/a DownloadUser = root' /etc/pacman.conf; \
+       fi \
+    && pacman-key --init \
+    && pacman-key --populate archlinuxarm \
+    && pacman -Syu --noconfirm
+
+COPY builder/guest/runtime-packages.txt /tmp/builder/runtime-packages.txt
+RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
+        /tmp/builder/runtime-packages.txt > /tmp/builder/runtime.pkgs \
+    && mapfile -t _pkgs < /tmp/builder/runtime.pkgs \
+    && pacman -S --needed --noconfirm "${_pkgs[@]}" \
+    && rm -rf /var/cache/pacman/pkg/* \
+    && unset _pkgs
+
+# Pull the prebuilt graphics artifact and the patched Omarchy shell out of the
+# toolchain stage. No compilers, no .git history, no Meson/CMake caches cross
+# over. The /opt/src source tree is also brought across because the assembly
+# scripts read manifest/* and patches/* from it.
+COPY --from=toolchain /opt/omarchy-android /opt/omarchy-android
+COPY --from=toolchain /opt/src/upstream/omarchy /tmp/omarchy-shell
+COPY --from=toolchain /opt/src /opt/src
 
 # Drop the compiler closure so the published image only retains the explicit
-# runtime roots declared in runtime-packages.txt.
-RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt
-
-# Lay down the Omarchy shell source, the curated Android guest runtime, the
-# checksum-pinned Voxtype binary, the default theme, and the seed home
-# directory. assemble-release-rootfs.sh additionally scrubs the result and
-# writes /etc/omarchy-android-release.
-RUN /opt/src/builder/guest/assemble-release-rootfs.sh \
-      /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
-    && rm -rf /opt/src \
+# runtime roots declared in runtime-packages.txt. assemble-release-rootfs.sh
+# also performs the final scrub and writes /etc/omarchy-android-release.
+RUN /opt/src/builder/guest/prune-release-packages.sh /tmp/builder/runtime-packages.txt \
+    && /opt/src/builder/guest/assemble-release-rootfs.sh \
+         /opt/src /tmp/omarchy-shell /opt/omarchy-android \
+    && rm -rf /opt/src /tmp/omarchy-shell /tmp/builder \
     && find /var/cache/pacman/pkg -depth -delete 2>/dev/null || true
 
 CMD ["/bin/bash"]
