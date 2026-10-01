@@ -63,7 +63,8 @@ jobs:
           # installer expects. This catches a broken Dockerfile before the
           # release workflow trusts the image.
           docker pull --platform linux/arm64 "$PRECOMPILE_REFERENCE"
-          docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
+          # Capture both stdout and stderr to diagnose which assertion fails.
+          if ! docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
             set -eu
             test -f /etc/omarchy-android-release
             test -x /opt/omarchy-android/hyprland/bin/Hyprland
@@ -74,4 +75,17 @@ jobs:
             test -f /usr/share/omarchy/LICENSE
             command -v quickshell chromium nautilus foot uwsm-app omarchy-launch-shell
             locale -a | grep -Fxi "C.utf8"
-          '
+          '; then
+            echo "--- Diagnostics: dumping precompile top-level ---"
+            docker run --rm --platform linux/arm64 "$PRECOMPILE_REFERENCE" /bin/sh -c '
+              echo "/etc/omarchy-android-release:"
+              cat /etc/omarchy-android-release 2>&1 | head -5 || true
+              echo "/opt/omarchy-android listing:"
+              ls /opt/omarchy-android 2>&1 || true
+              echo "/usr/local/bin listing:"
+              ls /usr/local/bin 2>&1 | head -10 || true
+              echo "/usr/share/omarchy listing:"
+              ls /usr/share/omarchy 2>&1 | head -10 || true
+            '
+            exit 1
+          fi
