@@ -53,6 +53,12 @@ FROM --platform=${TARGETPLATFORM} ${ARCHLINUXARM_BASE}
 ARG OCI_MANIFEST_DIGEST
 ARG VERSION
 
+# Re-declare the cross-stage ARGs inside stage 2 because ARG only lives
+# within the stage where it was first declared; the FROM above resets
+# the variable scope.
+ARG OCI_MANIFEST_DIGEST
+ARG VERSION
+
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Pacman's nested sandbox cannot run under Docker or PRoot; disable.
