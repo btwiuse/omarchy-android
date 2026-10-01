@@ -113,7 +113,7 @@ jobs:
           actual_sha="$(sha256sum "$host_archive" | awk '{print $1}')"
           [[ "$actual_sha" == "$host_sha256" ]] \
             || { echo "Host payload checksum mismatch" >&2; exit 1; }
-          tar -xf "$host_archive" -C host-payload-staging
+          tar -xf "$host_archive" -C host-payload-staging             && ls -la host-payload-staging/             && file "$host_archive"
 
           # The release image is the immutable X.Y.Z (or :main for non-tag
           # pushes). Tag it locally under that ref so the release workflow
