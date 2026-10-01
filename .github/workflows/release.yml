@@ -31,19 +31,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  image:
-    name: Build the release image on top of :precompile
+  publish:
+    name: Publish installable release
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
-    outputs:
-      precompile_reference: ${{ steps.resolve.outputs.precompile_reference }}
-      version_tag: ${{ steps.resolve.outputs.version_tag }}
-      version: ${{ steps.resolve.outputs.version }}
-      oci_reference: ${{ steps.resolve.outputs.oci_reference }}
-      precompile_digest: ${{ steps.precompile.outputs.precompile_digest }}
-      release_image_digest: ${{ steps.build.outputs.release_image_digest }}
-      oci_manifest_digest: ${{ steps.build.outputs.release_image_digest }}
-      release_reference: ${{ steps.build.outputs.release_reference }}
     steps:
       - name: Check out tagged release source
         uses: actions/checkout@v7
@@ -94,7 +85,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull the precompile image and capture its digest
-        id: precompile
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
         run: |
@@ -102,26 +92,10 @@ jobs:
           precompile_digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$PRECOMPILE_REFERENCE" | sed -e 's/^[^@]*@//')"
           printf 'precompile_digest=%s\n' "$precompile_digest" >> "$GITHUB_OUTPUT"
 
-      - name: Download the host payload archive
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          VERSION_REF: ${{ github.ref_name }}
-        run: |
-          mkdir -p image-output host-payload host-payload-staging
-          host_record="$(awk -F '|' '$1=="android-host" {print; found=1; exit} END {if (!found) exit 1}' "$GITHUB_WORKSPACE/manifest/host-artifacts.lock")"
-          IFS='|' read -r _ _ host_url host_sha256 _ <<<"$host_record"
-          host_archive="$GITHUB_WORKSPACE/${host_url##*/}"
-          curl --fail --location --retry 3 --output "$host_archive" "$host_url"
-          actual_sha="$(sha256sum "$host_archive" | awk '{print $1}')"
-          [[ "$actual_sha" == "$host_sha256" ]] \
-            || { echo "Host payload checksum mismatch" >&2; exit 1; }
-          tar -xf "$host_archive" -C host-payload-staging
-
       - name: Build the release image on top of :precompile
-        id: build
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
-          PRECOMPILE_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
+          PRECOMPILE_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
           VERSION_TAG: ${{ steps.resolve.outputs.version_tag }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
           VERSION: ${{ steps.resolve.outputs.version }}
@@ -144,11 +118,11 @@ jobs:
               --file builder/ci/Dockerfile.release \
               "$GITHUB_WORKSPACE"
           docker push "$release_reference"
-          # Mirror under a few well-known tags so pull URLs are stable and
-          # discoverable. :latest tracks the most recent release-built
-          # image; :release mirrors :main under a name that signals "the
-          # release pipeline built this"; :vX.Y.Z is only added when the
-          # run was triggered by a v-tag push.
+          # Mirror under stable, well-known names so install URLs are easy
+          # to spell. :latest tracks the most recent release-built image;
+          # :release mirrors :main under a name that signals "the release
+          # pipeline built this"; :vX.Y.Z is only added when the run was
+          # triggered by a v-tag push.
           docker tag "$release_reference" "${OCI_REFERENCE%:*}:latest"
           docker push "${OCI_REFERENCE%:*}:latest"
           docker tag "$release_reference" "${OCI_REFERENCE%:*}:release"
@@ -172,45 +146,17 @@ jobs:
             >/dev/null
           docker rm --force release-host-tmp >/dev/null
 
-      - name: Upload host payload for the publish job
-        uses: actions/upload-artifact@v7
-        with:
-          name: omarchy-android-release-${{ steps.resolve.outputs.version_tag }}
-          path: image-output/host/
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-  publish:
-    name: Publish GH release and lock
-    needs: image
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Download host payload artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: omarchy-android-release-${{ needs.image.outputs.version_tag }}
-          path: release/
-
-      - name: Check out tagged release source
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Assemble the host bundle
+      - name: Assemble host bundle and publish GH release asset
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          VERSION: ${{ needs.image.outputs.version }}
-          OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.release_image_digest }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
+          OCI_MANIFEST_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
         run: |
-          # The download-artifact step extracted image-output/host/ from the
-          # build job into release/host/. Symlink so assemble-bundle.sh sees
-          # the same image-output/ layout it used to assemble locally.
-          mkdir -p image-output
-          ln -sfn "$GITHUB_WORKSPACE/release/host" "$GITHUB_WORKSPACE/image-output/host"
+          tag="v$VERSION"
+          asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
+          mkdir -p release
           base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
           base_tag="$(awk -F'|' '$1=="archlinuxarm" {print $3}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
           base_manifest="$(awk -F'|' '$1=="archlinuxarm" {print $4}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
@@ -228,14 +174,6 @@ jobs:
             image-output/ \
             "$GITHUB_WORKSPACE/.work/ci-release-$VERSION"
 
-      - name: Publish host payload as a GitHub Release asset
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.image.outputs.version }}
-        run: |
-          tag="v$VERSION"
-          asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
           sidecar="$bundle.sha256"
           bundle_sha256="$(sha256sum "$bundle")"
@@ -282,10 +220,10 @@ jobs:
       - name: Point the installer at the published release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          VERSION: ${{ needs.image.outputs.version }}
-          OCI_REFERENCE: ${{ needs.image.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ needs.image.outputs.release_image_digest }}
-          HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ needs.image.outputs.version }}.tar.xz
+          VERSION: ${{ steps.resolve.outputs.version }}
+          OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
+          OCI_MANIFEST_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
+          HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
           default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
             | sed 's|^origin/||')"
