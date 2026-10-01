@@ -89,24 +89,12 @@ RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
 COPY --from=precompile /opt/omarchy-android /opt/omarchy-android
 COPY --from=precompile /opt/src/upstream/omarchy /opt/src/upstream/omarchy
 
-# Curated Android host payload: native helpers, patched Weston module, and
-# license texts. The release workflow extracts the host payload archive to
-# ./host-payload-staging/ in the build context, which is what we COPY from.
-COPY host-payload-staging/ /tmp/host-payload-staging/
-RUN install -d -m 0755 /usr/local/bin /opt/weston/lib/libweston-14 \
-    && install -m 0755 \
-        /tmp/host-payload-staging/host/bin/omarchy-process-guard \
-        /tmp/host-payload-staging/host/bin/omarchy-x11-keyboard \
-        /usr/local/bin/ \
-    && install -m 0755 \
-        /tmp/host-payload-staging/host/opt/weston/lib/libweston-14/x11-backend.so \
-        /opt/weston/lib/libweston-14/x11-backend.so \
-    && install -d -m 0755 /usr/share/licenses/omarchy-android /usr/share/licenses/weston \
-    && install -m 0644 /tmp/host-payload-staging/host/share/licenses/omarchy-android/LICENSE \
-        /usr/share/licenses/omarchy-android/LICENSE \
-    && install -m 0644 /tmp/host-payload-staging/host/share/licenses/weston/COPYING \
-        /usr/share/licenses/weston/COPYING \
-    && rm -rf /tmp/host-payload-staging /tmp/builder
+# Stage the curated Android host payload (native helpers, patched Weston
+# module, license texts) for assemble-bundle.sh to package into the
+# installer release.lock. Do NOT install these into the OCI image; they
+# are bionic ELFs that run on the phone's Termux prefix, not in the
+# linux/glibc guest rootfs.
+COPY host-payload-staging/ /opt/host-payload-staging/
 
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
 # run the default theme generator, scrub the result, and write the release
