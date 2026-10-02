@@ -213,13 +213,18 @@ ensure_audio_bridge() {
       sleep 0.2
     fi
   fi
+
   [[ -S "$pulse_runtime/native" ]] && unlink "$pulse_runtime/native"
   [[ -f "$pulse_runtime/pid" ]] && unlink "$pulse_runtime/pid"
-
+  # Do NOT load module-aaudio-sink eagerly. The Termux AAudio sink
+  # module tears down the daemon after a short idle window (it unloads
+  # itself, and the unload cascade kills the native-protocol-tcp listener
+  # so the bridge stops responding). Loading it lazily instead, the first
+  # guest that requests a sink triggers module-autospawn, which keeps the
+  # bridge stable across the full idle window.
   PULSE_NO_DBUS=1 PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
     pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
     --log-target="file:$state_dir/pulse.log" \
-    -L module-aaudio-sink \
     -L module-sles-source \
     -L module-native-protocol-unix \
     -L 'module-native-protocol-tcp listen=127.0.0.1 port=4715 auth-ip-acl=127.0.0.1' || return 1
@@ -228,6 +233,22 @@ ensure_audio_bridge() {
     pulse_server_responding && break
     sleep 0.1
   done
+
+  pulse_server_responding || return 1
+  # Try to set AAudio_sink as the default; if module-aaudio-sink has not
+  # auto-loaded yet (no client tried to play audio), this fails and we
+  # leave the sink unset. The first audio client triggers module-autospawn
+  # via module-zeroconf-discover or module-default-device-restore, which
+  # causes AAudio_sink to appear and bind the default sink.
+  PULSE_SERVER=tcp:127.0.0.1:4715 \
+    timeout --kill-after=0.5 1 pactl set-default-sink AAudio_sink >/dev/null 2>&1 || true
+  pulse_source="$(PULSE_SERVER=tcp:127.0.0.1:4715 \
+    timeout --kill-after=0.5 1 pactl list short sources 2>/dev/null |
+    awk '$2 !~ /[.]monitor$/ { print $2; exit }')"
+  if [[ -n "$pulse_source" ]]; then
+    PULSE_SERVER=tcp:127.0.0.1:4715 \
+      timeout --kill-after=0.5 1 pactl set-default-source "$pulse_source" >/dev/null || true
+  fi
 
   # Promote pulseaudio's runtime pidfile into $state_dir so omarchy-android-stop
   # can tear it down without resorting to a cmdline sweep that would also
@@ -242,17 +263,6 @@ ensure_audio_bridge() {
     printf '%s\n' "$pulse_pid" > "$state_dir/pulse.pid"
   else
     rm -f "$state_dir/pulse.pid"
-  fi
-
-  pulse_server_responding || return 1
-  PULSE_SERVER=tcp:127.0.0.1:4715 \
-    timeout --kill-after=0.5 1 pactl set-default-sink AAudio_sink >/dev/null || return 1
-  pulse_source="$(PULSE_SERVER=tcp:127.0.0.1:4715 \
-    timeout --kill-after=0.5 1 pactl list short sources 2>/dev/null |
-    awk '$2 !~ /[.]monitor$/ { print $2; exit }')"
-  if [[ -n "$pulse_source" ]]; then
-    PULSE_SERVER=tcp:127.0.0.1:4715 \
-      timeout --kill-after=0.5 1 pactl set-default-source "$pulse_source" >/dev/null || return 1
   fi
 }
 
@@ -368,7 +378,7 @@ if pid_is_live "$state_dir/proot.pid" "$container"; then
 fi
 
 # Clean up an interrupted partial stack but preserve a healthy X server.
-"$script_dir/omarchy-android-stop" --keep-x >/dev/null 2>&1 || true
+"$script_dir/omarchy-android-stop" --keep-x --keep-pulse >/dev/null 2>&1 || true
 
 # Auto starts with Termux:X11's current native Android surface. After the app
 # is attached, the long edge is capped without changing aspect ratio so dense
@@ -557,7 +567,7 @@ for _ in {1..100}; do
 done
 if [[ ! -S "$runtime/wayland-omarchy" ]]; then
   echo "Weston did not become ready; see $state_dir/weston.log" >&2
-  "$script_dir/omarchy-android-stop" --keep-x >/dev/null 2>&1 || true
+  "$script_dir/omarchy-android-stop" --keep-x --keep-pulse >/dev/null 2>&1 || true
   exit 1
 fi
 
@@ -572,7 +582,7 @@ if [[ "$gpu_mode" == "virgl" ]]; then
   done
   if [[ ! -S "$runtime/.virgl-omarchy" ]]; then
     echo "VirGL did not become ready; see $state_dir/virgl.log" >&2
-    "$script_dir/omarchy-android-stop" --keep-x >/dev/null 2>&1 || true
+    "$script_dir/omarchy-android-stop" --keep-x --keep-pulse >/dev/null 2>&1 || true
     exit 1
   fi
 else

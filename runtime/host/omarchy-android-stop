@@ -13,7 +13,13 @@ runtime="${OMARCHY_RUNTIME_DIR:-/data/data/com.termux/r}"
 container="${OMARCHY_CONTAINER:-omarchy-android}"
 state_dir="${OMARCHY_STATE_DIR:-$HOME/.local/state/$container}"
 keep_x=false
-[[ "${1:-}" == "--keep-x" ]] && keep_x=true
+keep_pulse=false
+for arg in "$@"; do
+  case "$arg" in
+    --keep-x) keep_x=true ;;
+    --keep-pulse) keep_pulse=true ;;
+  esac
+done
 
 pid_matches() {
   local pid="$1" expected="$2" cmdline
@@ -75,15 +81,17 @@ stop_orphans "omarchy-process-guard" "$state_dir"
 # carries is identical to the one we match here. Use the pidfile so a stop
 # while a session is mid-startup tears down only what start has finished
 # recording.
-if [[ -r "$state_dir/pulse.pid" ]]; then
-  read -r pulse_pid < "$state_dir/pulse.pid"
-  if [[ "$pulse_pid" =~ ^[0-9]+$ ]] && [[ -r "/proc/$pulse_pid/cmdline" ]]; then
-    kill -TERM "$pulse_pid" 2>/dev/null || true
-  fi
-elif [[ -r "$state_dir/pulse-runtime/pid" ]]; then
-  read -r pulse_pid < "$state_dir/pulse-runtime/pid"
-  if [[ "$pulse_pid" =~ ^[0-9]+$ ]] && [[ -r "/proc/$pulse_pid/cmdline" ]]; then
-    kill -TERM "$pulse_pid" 2>/dev/null || true
+if [[ "$keep_pulse" != true ]]; then
+  if [[ -r "$state_dir/pulse.pid" ]]; then
+    read -r pulse_pid < "$state_dir/pulse.pid"
+    if [[ "$pulse_pid" =~ ^[0-9]+$ ]] && [[ -r "/proc/$pulse_pid/cmdline" ]]; then
+      kill -TERM "$pulse_pid" 2>/dev/null || true
+    fi
+  elif [[ -r "$state_dir/pulse-runtime/pid" ]]; then
+    read -r pulse_pid < "$state_dir/pulse-runtime/pid"
+    if [[ "$pulse_pid" =~ ^[0-9]+$ ]] && [[ -r "/proc/$pulse_pid/cmdline" ]]; then
+      kill -TERM "$pulse_pid" 2>/dev/null || true
+    fi
   fi
 fi
 
