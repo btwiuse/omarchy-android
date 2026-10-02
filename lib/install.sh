@@ -178,15 +178,16 @@ EOF
 
 install_host_runtime() {
   local unpacked="$OA_INSTALL_TEMP/unpacked"
-  install -d -m 0755 "$OA_HOST_DIR/bin" "$OA_HOST_DIR/config" "$OA_HOST_DIR/opt/weston/lib/libweston-14"
+  install -d -m 0755 \
+    "$OA_HOST_DIR/bin" \
+    "$OA_HOST_DIR/config" \
+    "$OA_HOST_DIR/opt/weston/lib/libweston-14"
 
   install -m 0755 \
     "$PROJECT_ROOT/runtime/host/omarchy-android-start" \
     "$PROJECT_ROOT/runtime/host/omarchy-android-stop" \
     "$PROJECT_ROOT/runtime/host/omarchy-android-status" \
     "$PROJECT_ROOT/runtime/host/omarchy-android-hyprctl" \
-    "$OA_HOST_DIR/bin/"
-  install -m 0755 \
     "$unpacked/host/bin/omarchy-process-guard" \
     "$unpacked/host/bin/omarchy-x11-keyboard" \
     "$OA_HOST_DIR/bin/"

@@ -9,14 +9,11 @@
 
 set -euo pipefail
 
-# Resolve the repo root. Prefer OMARCHY_ANDROID_REPO (exported by env),
-# fall back to a derivation from BASH_SOURCE[0] when run before env has
-# been sourced (e.g. on first install).
-if [[ -n "${OMARCHY_ANDROID_REPO:-}" && -d "${OMARCHY_ANDROID_REPO}" ]]; then
-  repo_root="$(cd -- "$OMARCHY_ANDROID_REPO" && pwd -P)"
-else
-  repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-fi
+# Resolve the repo root. OMARCHY_ANDROID_REPO is exported by ./env
+# (and re-exported by tests that redirect OA_HOST_DIR), so it is
+# always available by the time this launcher runs.
+: "${OMARCHY_ANDROID_REPO:?OMARCHY_ANDROID_REPO must be set (source ./env first)}"
+repo_root="$(cd -- "$OMARCHY_ANDROID_REPO" && pwd -P)"
 export OMARCHY_ANDROID_REPO="$repo_root"
 
 action="${1:-}"
@@ -30,7 +27,6 @@ case "$action" in
     exec "$repo_root/install.sh" --help
     ;;
   start|stop|status|hyprctl)
-    OA_HOST_DIR="$repo_root/.work/host-runtime"
     bin="$OA_HOST_DIR/bin/omarchy-android-$action"
     if [[ -x "$bin" ]]; then
       exec "$bin" "$@"

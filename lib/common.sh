@@ -7,8 +7,8 @@ OA_COMMON_LOADED=1
 
 # Host runtime lives under the repo (gitignored). The proot-distro container
 # still goes under $PREFIX/var/lib/proot-distro because that path is owned
-# by proot-distro and cannot be redirected. OA_HOST_DIR is exported so
-# tests and external tooling can override it.
+# by proot-distro and cannot be redirected. The override exists for tests
+# that redirect the runtime tree to a temp directory.
 OA_HOST_DIR="${OA_HOST_DIR:-${PROJECT_ROOT:?}/.work/host-runtime}"
 export OA_HOST_DIR
 
