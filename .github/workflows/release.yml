@@ -137,6 +137,7 @@ jobs:
           # release workflow used to inherit this from the legacy
           # build-image pipeline; assemble-bundle.sh needs the lock on
           # disk to verify the bundle against the expected runtime closure.
+          mkdir -p image-output
           docker run --rm --platform linux/arm64 "$release_reference" \
               /bin/sh -c 'pacman -Q | LC_ALL=C sort' \
               2> image-output/packages-aarch64-$VERSION.stderr \
