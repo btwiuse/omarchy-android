@@ -55,15 +55,9 @@ ARG VERSION
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Pacman's nested sandbox cannot run under Docker or PRoot; disable.
-RUN sed -i \
-      -e '/^DisableSandboxFilesystem$/d' \
-      -e '/^DisableSandboxSyscalls$/d' \
-      /etc/pacman.conf \
-    && sed -i \
-         -e '/^\[options\]$/a DisableSandboxSyscalls' \
-         -e '/^\[options\]$/a DisableSandboxFilesystem' \
-         /etc/pacman.conf \
+# Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker.
+COPY builder/ci/prepare-pacman-conf.sh /tmp/builder/prepare-pacman-conf.sh
+RUN /tmp/builder/prepare-pacman-conf.sh \
     && pacman-key --init \
     && pacman-key --populate archlinuxarm \
     && pacman -Syu --noconfirm
@@ -88,12 +82,8 @@ COPY runtime/guest /opt/src/runtime/guest/
 # the curated desktop environment, plus the libraries Mesa, Hyprland and
 # the rest of the stack need at runtime. No compiler packages here.
 COPY builder/guest/runtime-packages.txt /tmp/builder/runtime-packages.txt
-RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
-        /tmp/builder/runtime-packages.txt > /tmp/builder/runtime.pkgs \
-    && mapfile -t _pkgs < /tmp/builder/runtime.pkgs \
-    && pacman -S --needed --noconfirm "${_pkgs[@]}" \
-    && rm -rf /var/cache/pacman/pkg/* \
-    && unset _pkgs
+COPY builder/ci/install-pkg-list.sh /tmp/builder/install-pkg-list.sh
+RUN /tmp/builder/install-pkg-list.sh /tmp/builder/runtime-packages.txt
 
 # Pull the compiled graphics artifact out of the precompile image. No
 # compilers, no .git history, no Meson/CMake caches cross over - the
@@ -112,15 +102,11 @@ COPY host-payload-staging/ /opt/host-payload-staging/
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
 # run the default theme generator, scrub the result, and write the release
 # identity metadata.
-COPY builder/guest/install-artifacts.sh /opt/src/builder/guest/install-artifacts.sh
-COPY scripts /opt/src/scripts/
+COPY builder/ci/apply-omarchy-patches.sh /tmp/builder/apply-omarchy-patches.sh
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       omarchy \
-    && git -C /opt/src/upstream/omarchy config user.name 'Omarchy Android Builder' \
-    && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
-    && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
-         /opt/src/patches/omarchy-shell/*.patch \
+    && /tmp/builder/apply-omarchy-patches.sh \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
          /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
     && rm -rf /opt/src /root/.ssh 2>/dev/null || true \

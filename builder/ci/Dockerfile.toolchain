@@ -18,35 +18,17 @@ FROM --platform=${TARGETPLATFORM} ${ARCHLINUXARM_BASE}
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker or
-# PRoot. Disable only those inner restrictions; the entire builder remains
-# confined to the disposable container.
-RUN sed -i \
-      -e '/^DisableSandboxFilesystem$/d' \
-      -e '/^DisableSandboxSyscalls$/d' \
-      /etc/pacman.conf \
-    && sed -i \
-         -e '/^\[options\]$/a DisableSandboxSyscalls' \
-         -e '/^\[options\]$/a DisableSandboxFilesystem' \
-         /etc/pacman.conf \
-    && if ! grep -q '^ParallelDownloads' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a ParallelDownloads = 4' /etc/pacman.conf; \
-       fi \
-    && if ! grep -q '^DownloadUser' /etc/pacman.conf; then \
-         sed -i '/^\[options\]$/a DownloadUser = root' /etc/pacman.conf; \
-       fi \
+# Pacman 7's Landlock/seccomp download sandbox cannot nest inside Docker.
+COPY builder/ci/prepare-pacman-conf.sh /tmp/builder/prepare-pacman-conf.sh
+RUN /tmp/builder/prepare-pacman-conf.sh \
     && pacman-key --init \
     && pacman-key --populate archlinuxarm \
     && pacman -Syu --noconfirm
 
 # Build dependency set (compilers, headers, linkers, generators).
 COPY builder/guest/packages.txt /tmp/builder/packages.txt
-RUN sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
-        /tmp/builder/packages.txt > /tmp/builder/build.pkgs \
-    && mapfile -t _pkgs < /tmp/builder/build.pkgs \
-    && pacman -S --needed --noconfirm "${_pkgs[@]}" \
-    && rm -rf /var/cache/pacman/pkg/* \
-    && unset _pkgs
+COPY builder/ci/install-pkg-list.sh /tmp/builder/install-pkg-list.sh
+RUN /tmp/builder/install-pkg-list.sh /tmp/builder/packages.txt
 
 # Project source for the build-time scripts and pinned manifest lock files.
 # Each directory is copied with a trailing slash so the directory names are
@@ -75,10 +57,7 @@ RUN git config --global --add safe.directory /opt/src/upstream/mesa \
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       mesa aquamarine hyprland omarchy \
-    && git -C /opt/src/upstream/omarchy config user.name 'Omarchy Android Builder' \
-    && git -C /opt/src/upstream/omarchy config user.email 'builder@omarchy-android.invalid' \
-    && git -C /opt/src/upstream/omarchy am --committer-date-is-author-date \
-         /opt/src/patches/omarchy-shell/*.patch \
+    && /tmp/builder/apply-omarchy-patches.sh \
     && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
        /opt/src/builder/guest/build-from-local-forks.sh \
          /opt/src \

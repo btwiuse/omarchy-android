@@ -51,34 +51,13 @@ pacman_conf="$container_root/etc/pacman.conf"
 
 if grep -q '^ParallelDownloads' "$pacman_conf"; then
   sed -i 's/^ParallelDownloads.*/ParallelDownloads = 1/' "$pacman_conf"
-else
-  printf '\nParallelDownloads = 1\n' >> "$pacman_conf"
 fi
-if grep -q '^DownloadUser' "$pacman_conf"; then
-  sed -i 's/^DownloadUser.*/DownloadUser = root/' "$pacman_conf"
-else
-  printf 'DownloadUser = root\n' >> "$pacman_conf"
-fi
-# These are general pacman options, not repository directives. Remove any
-# stale copy from a failed/resumed run and insert them directly under
-# [options]; pacman's Landlock/seccomp download sandbox cannot run in PRoot.
-sed -i \
-  -e '/^DisableSandboxFilesystem$/d' \
-  -e '/^DisableSandboxSyscalls$/d' \
-  "$pacman_conf"
-sed -i \
-  -e '/^\[options\]$/a DisableSandboxSyscalls' \
-  -e '/^\[options\]$/a DisableSandboxFilesystem' \
-  "$pacman_conf"
-
-mapfile -t packages < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$packages_file")
-(( ${#packages[@]} > 0 )) || {
-  printf 'Empty runtime package manifest: %s\n' "$packages_file" >&2
-  exit 1
-}
+proot-distro login "$builder_name" -- /mnt/project/builder/ci/prepare-pacman-conf.sh /etc/pacman.conf \
+  || { printf 'prepare-pacman-conf.sh failed inside %s.\n' "$builder_name" >&2; exit 1; }
 
 proot-distro login "$builder_name" -- pacman -Syu --noconfirm
-proot-distro login "$builder_name" -- pacman -S --needed --noconfirm "${packages[@]}"
+proot-distro login "$builder_name" -- \
+  /mnt/project/builder/ci/install-pkg-list.sh "/mnt/project/$packages_file"
 proot-distro login \
   --isolated \
   --bind "$ROOT:/mnt/project" \

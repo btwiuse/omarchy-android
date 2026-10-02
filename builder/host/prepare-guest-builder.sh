@@ -43,26 +43,16 @@ pacman_conf="$container_root/etc/pacman.conf"
 # entire builder remains isolated by PRoot and is disposable.
 if grep -q '^ParallelDownloads' "$pacman_conf"; then
   sed -i 's/^ParallelDownloads.*/ParallelDownloads = 1/' "$pacman_conf"
-else
-  printf '\nParallelDownloads = 1\n' >>"$pacman_conf"
 fi
-if grep -q '^DownloadUser' "$pacman_conf"; then
-  sed -i 's/^DownloadUser.*/DownloadUser = root/' "$pacman_conf"
-else
-  printf 'DownloadUser = root\n' >>"$pacman_conf"
-fi
-grep -qxF 'DisableSandboxFilesystem' "$pacman_conf" || printf 'DisableSandboxFilesystem\n' >>"$pacman_conf"
-grep -qxF 'DisableSandboxSyscalls' "$pacman_conf" || printf 'DisableSandboxSyscalls\n' >>"$pacman_conf"
+proot-distro login "$builder_name" -- /mnt/project/builder/ci/prepare-pacman-conf.sh /etc/pacman.conf \
+  || { printf 'prepare-pacman-conf.sh failed inside %s.\n' "$builder_name" >&2; exit 1; }
 
 printf 'Updating the disposable builder...\n'
 proot-distro login "$builder_name" -- pacman -Syu --noconfirm
 
-mapfile -t packages < <(sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$packages_file")
-(( ${#packages[@]} > 0 )) || {
-  printf 'Empty package manifest: %s\n' "$packages_file" >&2
-  exit 1
-}
+printf 'Installing %d pinned build dependency names...\n' \
+  "$(grep -cvE '^[[:space:]]*(#|$)' "$packages_file")"
+proot-distro login "$builder_name" -- \
+  /mnt/project/builder/ci/install-pkg-list.sh "/mnt/project/$packages_file"
 
-printf 'Installing %d pinned build dependency names...\n' "${#packages[@]}"
-proot-distro login "$builder_name" -- pacman -S --needed --noconfirm "${packages[@]}"
 printf 'Builder %s is ready.\n' "$builder_name"
