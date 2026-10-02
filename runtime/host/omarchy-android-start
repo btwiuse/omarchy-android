@@ -184,7 +184,7 @@ ensure_audio_bridge() {
     [[ -r "$proc_dir/cmdline" ]] || continue
     cmdline="$( { tr '\0' ' ' < "$proc_dir/cmdline"; } 2>/dev/null || true)"
     case "$cmdline" in
-      *"pulseaudio -n --daemonize=yes"*"-L "*"module-aaudio-sink"*)
+      *"pulseaudio -nC"*"-L "*"module-aaudio-sink"*)
         if [[ "$cmdline" == *"--log-target=file:$state_dir/pulse.log"* ||
               "$cmdline" == *"$pulse_runtime"* ]]; then
           kill -TERM "$pulse_pid" 2>/dev/null || true
@@ -198,7 +198,7 @@ ensure_audio_bridge() {
     [[ -r "/proc/$pulse_pid/cmdline" ]] || continue
     cmdline="$( { tr '\0' ' ' < "/proc/$pulse_pid/cmdline"; } 2>/dev/null || true)"
     case "$cmdline" in
-      *"pulseaudio -n --daemonize=yes"*)
+      *"pulseaudio -nC"*)
         kill -KILL "$pulse_pid" 2>/dev/null || true
         ;;
     esac
@@ -216,16 +216,15 @@ ensure_audio_bridge() {
 
   [[ -S "$pulse_runtime/native" ]] && unlink "$pulse_runtime/native"
   [[ -f "$pulse_runtime/pid" ]] && unlink "$pulse_runtime/pid"
-  # Do NOT load module-aaudio-sink eagerly. The Termux AAudio sink
-  # module tears down the daemon after a short idle window (it unloads
-  # itself, and the unload cascade kills the native-protocol-tcp listener
-  # so the bridge stops responding). Loading it lazily instead, the first
-  # guest that requests a sink triggers module-autospawn, which keeps the
-  # bridge stable across the full idle window.
+  # Launch with -nC so Termux's default.pa (which loads module-sles-sink)
+  # is skipped. Termux's module-aaudio-sink tears down the daemon if a
+  # sles-sink is also present, so we own the full module list and load
+  # AAudio as the only sink. The TCP listener stays bound to 127.0.0.1:4715
+  # so the guest's PULSE_SERVER reaches us; auth-ip-acl keeps it local.
   PULSE_NO_DBUS=1 PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
-    pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
+    pulseaudio -nC --daemonize=yes --exit-idle-time=-1 \
     --log-target="file:$state_dir/pulse.log" \
-    -L module-sles-source \
+    -L module-aaudio-sink \
     -L module-native-protocol-unix \
     -L 'module-native-protocol-tcp listen=127.0.0.1 port=4715 auth-ip-acl=127.0.0.1' || return 1
 
@@ -235,20 +234,16 @@ ensure_audio_bridge() {
   done
 
   pulse_server_responding || return 1
-  # Try to set AAudio_sink as the default; if module-aaudio-sink has not
-  # auto-loaded yet (no client tried to play audio), this fails and we
-  # leave the sink unset. The first audio client triggers module-autospawn
-  # via module-zeroconf-discover or module-default-device-restore, which
-  # causes AAudio_sink to appear and bind the default sink.
+  # AAudio_sink is the only sink we loaded, so it is automatically the
+  # default. We still issue set-default-sink explicitly because if a future
+  # default.pa change adds a second sink we want AAudio to win.
   PULSE_SERVER=tcp:127.0.0.1:4715 \
     timeout --kill-after=0.5 1 pactl set-default-sink AAudio_sink >/dev/null 2>&1 || true
-  pulse_source="$(PULSE_SERVER=tcp:127.0.0.1:4715 \
-    timeout --kill-after=0.5 1 pactl list short sources 2>/dev/null |
-    awk '$2 !~ /[.]monitor$/ { print $2; exit }')"
-  if [[ -n "$pulse_source" ]]; then
-    PULSE_SERVER=tcp:127.0.0.1:4715 \
-      timeout --kill-after=0.5 1 pactl set-default-source "$pulse_source" >/dev/null || true
-  fi
+  # No aaudio-source module ships with Termux pulseaudio; the only sink
+  # monitor available is AAudio_sink.monitor. Use it as the default source
+  # so guest apps that listen for input devices see a working source.
+  PULSE_SERVER=tcp:127.0.0.1:4715 \
+    timeout --kill-after=0.5 1 pactl set-default-source AAudio_sink.monitor >/dev/null 2>&1 || true
 
   # Promote pulseaudio's runtime pidfile into $state_dir so omarchy-android-stop
   # can tear it down without resorting to a cmdline sweep that would also
