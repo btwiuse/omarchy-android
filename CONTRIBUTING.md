@@ -6,7 +6,7 @@ Before filing a bug, run:
 
 ```bash
 ./install.sh doctor
-~/.local/share/omarchy-android/bin/omarchy-android status
+omarchy-android status
 ```
 
 Include the Android version, device model, GPU, selected installer options,

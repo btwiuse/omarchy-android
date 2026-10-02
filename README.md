@@ -79,26 +79,49 @@ repeat step 2 and run the check again.
 ./install.sh --yes
 ```
 
-The installer downloads a digest-pinned ARM64 OCI image and a small host
-payload archive, verifies both before use, creates a new `omarchy-android`
-PRoot container, and leaves existing containers alone. Keep Termux open
-while it finishes.
+The installer downloads a pinned ARM64 OCI image and a small host payload
+archive, verifies both before use, creates a new `omarchy-android` PRoot
+container, and leaves existing containers alone. Keep Termux open while it
+finishes.
+
+The host runtime (compiled binaries, helper scripts, the weston plugin,
+and the per-install config) is written under the repo at
+`.work/host-runtime/`, alongside the installer. The PRoot container itself
+lives in `$PREFIX/var/lib/proot-distro/` because that path is owned by
+proot-distro and cannot be redirected.
 
 Everything is precompiled. The phone downloads and verifies the release;
 it does not compile Mesa, Hyprland, Weston, or Omarchy.
 
-### 6. Start the desktop
+### 6. Make the launcher available in every shell
+
+Add this one line to `~/.bashrc` so the `omarchy-android` command and all
+of its subcommands work from any shell, before and after install:
 
 ```bash
-~/.local/share/omarchy-android/bin/omarchy-android start
+[ -r "$HOME/omarchy-android/env" ] && source "$HOME/omarchy-android/env"
+```
+
+Open a new Termux session (or run `source ~/.bashrc` in the current one).
+
+### 7. Start the desktop
+
+```bash
+omarchy-android start
 ```
 
 Termux:X11 opens automatically. To stop or inspect the desktop later, use:
 
 ```bash
-~/.local/share/omarchy-android/bin/omarchy-android stop
-~/.local/share/omarchy-android/bin/omarchy-android status
+omarchy-android stop
+omarchy-android status
 ```
+
+If you would rather call the installed helper directly without sourcing
+`env`, the on-device launcher is at
+`omarchy-android/.work/host-runtime/bin/omarchy-android`. The same file in
+the repo (`runtime/host/omarchy-android`) routes every action through one
+command, so `omarchy-android help` lists what is supported.
 
 ## What works
 
