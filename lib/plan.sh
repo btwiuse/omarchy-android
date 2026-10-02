@@ -8,7 +8,7 @@ plan_add() {
 
 build_install_plan() {
   OA_PLAN=()
-  plan_add "Acquire an exclusive installer lock under $OA_PREFIX"
+  plan_add "Acquire an exclusive installer lock under $OA_HOST_DIR"
   plan_add "Install missing Termux host packages: PRoot Distro, Termux:X11, Weston, PulseAudio, and the Freedreno/Turnip runtime"
   plan_add "Verify that the Termux:X11 Android companion app is installed"
   plan_add "Verify Android's Disable child process restrictions setting; use the native safety guard only for an explicitly accepted fallback"
@@ -21,7 +21,7 @@ build_install_plan() {
 
   plan_add "Create a new isolated PRoot container named $OA_CONTAINER from the OCI release image"
   plan_add "Install the pinned Omarchy runtime and Android compatibility packages inside the new container"
-  plan_add "Install host start, stop, status, and Hyprland-control commands under $OA_PREFIX/bin"
+  plan_add "Install host start, stop, status, and Hyprland-control commands under $OA_HOST_DIR/bin"
   plan_add "Configure display=$OA_RESOLUTION refresh=$OA_REFRESH scale=$OA_SCALE keyboard=$OA_KEYBOARD gpu=$OA_GPU audio=$OA_AUDIO"
   plan_add "Configure optional host sharing mode: $OA_SHARE"
   plan_add "Run image, graphics-linkage, shell, browser, terminal, file-manager, and privacy smoke tests"
@@ -30,14 +30,14 @@ build_install_plan() {
 
 build_remove_plan() {
   OA_PLAN=()
-  local stop_helper="$OA_PREFIX/bin/omarchy-android-stop"
+  local stop_helper="$OA_HOST_DIR/bin/omarchy-android-stop"
   if [[ -x "$stop_helper" ]]; then
     plan_add "Stop any running Omarchy Android session via $stop_helper"
   else
     plan_add "No host-runtime stop helper found at $stop_helper (session may already be stopped)"
   fi
   plan_add "Remove the proot-distro container $OA_CONTAINER (drops every guest file under it)"
-  plan_add "Delete the host runtime tree at $OA_PREFIX and its install-lock"
+  plan_add "Delete the host runtime tree at $OA_HOST_DIR and its install-lock"
 
   if [[ "$OA_KEEP_TERMUX_PACKAGES" == true ]]; then
     plan_add "Leave shared Termux packages installed (proot-distro, termux-x11, weston, pulseaudio, freedreno)"

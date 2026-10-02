@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Omarchy Android host-side environment.
+# Adds the on-device host runtime to PATH and points the host scripts at
+# the installer-generated config file.
+
+# shellcheck source=lib/common.sh
+source "$PROJECT_ROOT/lib/common.sh"
+
+export OMARCHY_ANDROID_HOME="$OA_HOST_DIR"
+export OMARCHY_ANDROID_CONFIG="$OA_HOST_DIR/config/runtime.conf"
+export PATH="$OA_HOST_DIR/bin:$PATH"
+
+cat <<EOF
+Omarchy Android host environment loaded.
+
+  OMARCHY_ANDROID_HOME    = $OMARCHY_ANDROID_HOME
+  OMARCHY_ANDROID_CONFIG  = $OMARCHY_ANDROID_CONFIG
+  PATH                    = $PATH
+
+Run 'omarchy-android {start|stop|status|hyprctl}' from any shell that has
+sourced this file. To run from ~/.bashrc or ~/.zshrc, add a single line:
+
+  source /path/to/omarchy-android/env
+EOF

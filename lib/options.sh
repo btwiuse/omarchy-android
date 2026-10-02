@@ -13,7 +13,6 @@ OA_AUDIO=true
 OA_BUNDLE=''
 OA_HOST_BUNDLE=''
 OA_CONTAINER=omarchy-android
-OA_PREFIX="${HOME}/.local/share/omarchy-android"
 OA_DRY_RUN=false
 OA_ASSUME_YES=false
 OA_ALLOW_UNTESTED=false
@@ -42,7 +41,6 @@ Options:
   --bundle PATH           Use a local OCI image-layout tarball (containing oci-layout and index.json) instead of pulling from the registry
   --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
-  --prefix PATH           Host runtime path
   --keep-termux-packages  (remove) Do not offer to uninstall Termux packages that the installer added
   --yes                   Accept non-destructive prompts
   --allow-untested        Permit an untested Android version
@@ -118,11 +116,6 @@ parse_options() {
         OA_CONTAINER="$(option_value --name "${1:-}")"
         ;;
       --name=*) OA_CONTAINER="${1#*=}" ;;
-      --prefix)
-        shift
-        OA_PREFIX="$(option_value --prefix "${1:-}")"
-        ;;
-      --prefix=*) OA_PREFIX="${1#*=}" ;;
       --yes) OA_ASSUME_YES=true ;;
       --keep-termux-packages) OA_KEEP_TERMUX_PACKAGES=true ;;
       --allow-untested) OA_ALLOW_UNTESTED=true ;;
@@ -160,8 +153,6 @@ validate_options() {
   fi
 
   [[ "$OA_CONTAINER" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Invalid container name: $OA_CONTAINER"
-  [[ "$OA_PREFIX" == /* ]] || die "--prefix must be an absolute path."
-
   if [[ "$OA_ACTION" == "remove" ]]; then
     [[ -z "$OA_BUNDLE" ]] || die "--bundle cannot be combined with the remove action."
     [[ -z "$OA_HOST_BUNDLE" ]] || die "--host-bundle cannot be combined with the remove action."
@@ -182,7 +173,6 @@ Resolved configuration:
   bundle:       ${OA_BUNDLE:-download release image from registry}
   host bundle:  ${OA_HOST_BUNDLE:-download host payload archive}
   container:    $OA_CONTAINER
-  prefix:       $OA_PREFIX
   dry run:      $OA_DRY_RUN
   process limit override: $OA_ALLOW_PROCESS_LIMIT
 EOF
