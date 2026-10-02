@@ -104,7 +104,7 @@ COPY --from=precompile /opt/src/upstream/omarchy /opt/src/upstream/omarchy
 
 # Stage the curated Android host payload (native helpers, patched Weston
 # module, license texts) for assemble-bundle.sh to package into the
-# installer release.lock. Do NOT install these into the OCI image; they
+# GitHub Release asset. Do NOT install these into the OCI image; they
 # are bionic ELFs that run on the phone's Termux prefix, not in the
 # linux/glibc guest rootfs.
 COPY host-payload-staging/ /opt/host-payload-staging/

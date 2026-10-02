@@ -53,10 +53,31 @@ install_host_dependencies() {
   done
 }
 
-release_lock_field() {
-  local key="$1"
-  awk -F '=' -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found=1; exit} END {if (!found) exit 1}' \
-    "$PROJECT_ROOT/manifest/release.lock"
+OA_RELEASE_REPOSITORY="${OA_RELEASE_REPOSITORY:-btwiuse/omarchy-android}"
+OA_RELEASE_TAG=''
+OA_RELEASE_VERSION=''
+OA_RELEASE_OCI_REFERENCE=''
+OA_RELEASE_HOST_BUNDLE_ASSET=''
+OA_RELEASE_HOST_BUNDLE_URL=''
+
+# Resolve the latest published release by following the /releases/latest
+# redirect on github.com. Avoids the GitHub API entirely (no auth, no rate
+# limit) and does not require a hardcoded manifest/release.lock in the
+# repo. Callers can target a fork by exporting OA_RELEASE_REPOSITORY or
+# passing --repository OWNER/REPO.
+resolve_release() {
+  local url="https://github.com/$OA_RELEASE_REPOSITORY/releases/latest"
+  local final
+  final="$(curl --fail --silent --show-error --location \
+            --output /dev/null --write-out '%{url_effective}' "$url")" \
+    || die "Could not resolve latest release from $url. Pass --repository OWNER/REPO to target a fork."
+  [[ "$final" =~ /tag/(v[0-9]+\.[0-9]+\.[0-9]+)$ ]] \
+    || die "Latest release URL is not a vX.Y.Z tag: $final"
+  OA_RELEASE_TAG="${BASH_REMATCH[1]}"
+  OA_RELEASE_VERSION="${OA_RELEASE_TAG#v}"
+  OA_RELEASE_OCI_REFERENCE="ghcr.io/${OA_RELEASE_REPOSITORY}:${OA_RELEASE_VERSION}"
+  OA_RELEASE_HOST_BUNDLE_ASSET="omarchy-android-host-aarch64-${OA_RELEASE_VERSION}.tar.xz"
+  OA_RELEASE_HOST_BUNDLE_URL="https://github.com/${OA_RELEASE_REPOSITORY}/releases/download/${OA_RELEASE_TAG}/${OA_RELEASE_HOST_BUNDLE_ASSET}"
 }
 
 download_with_resume() {
@@ -75,12 +96,8 @@ download_with_resume() {
 }
 
 download_host_bundle() {
-  local lock_asset lock_url target local_bundle
-
-  lock_asset="$(release_lock_field host_bundle_asset)" || die 'Release lock has no host_bundle_asset.'
-  lock_url="$(release_lock_field host_bundle_url)" || die 'Release lock has no host_bundle_url.'
-
-  target="$OA_INSTALL_TEMP/$lock_asset"
+  local target="$OA_INSTALL_TEMP/$OA_RELEASE_HOST_BUNDLE_ASSET"
+  local local_bundle
 
   if [[ -n "$OA_HOST_BUNDLE" ]]; then
     local_bundle="$(cd -- "$(dirname -- "$OA_HOST_BUNDLE")" && pwd -P)/$(basename -- "$OA_HOST_BUNDLE")"
@@ -91,18 +108,14 @@ download_host_bundle() {
   fi
 
   info "Downloading host payload" >&2
-  if ! download_with_resume "$lock_url" "$target"; then
+  if ! download_with_resume "$OA_RELEASE_HOST_BUNDLE_URL" "$target"; then
     die 'Host payload download failed. Check the network connection or pass --host-bundle PATH.'
   fi
   printf '%s' "$target"
 }
 
 fetch_release_rootfs() {
-  local oci_ref
-
-  oci_ref="$(release_lock_field oci_reference)" || die 'Release lock has no oci_reference.'
-
-  printf '%s' "$oci_ref"
+  printf '%s' "$OA_RELEASE_OCI_REFERENCE"
 }
 
 verify_and_extract_bundle() {
@@ -272,6 +285,8 @@ perform_install() {
   confirm_install
   install_host_dependencies
 
+  resolve_release
+
   OA_INSTALL_LOCK="$OA_HOST_DIR.install-lock"
   mkdir -p "$(dirname -- "$OA_HOST_DIR")"
   mkdir "$OA_INSTALL_LOCK" 2>/dev/null || die "Another installer owns the lock: $OA_INSTALL_LOCK"
@@ -297,7 +312,7 @@ perform_install() {
   verify_and_extract_bundle "$bundle_host_only"
 
   if [[ -z "$rootfs_install_cmd" ]]; then
-    info "Pulling OCI rootfs from the registry"
+    info "Pulling OCI rootfs $OA_RELEASE_OCI_REFERENCE from the registry"
     rootfs_target="$(fetch_release_rootfs)"
     rootfs_install_cmd="$rootfs_target"
   fi
@@ -318,8 +333,8 @@ perform_install() {
   smoke_test_install
 
   cat > "$OA_HOST_DIR/INSTALL-MANIFEST" <<EOF
-version=$(awk -F= '$1=="version" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")
-oci_reference=$(release_lock_field oci_reference 2>/dev/null || printf '')
+version=$OA_RELEASE_VERSION
+oci_reference=$OA_RELEASE_OCI_REFERENCE
 container=$OA_CONTAINER
 gpu=$OA_GPU
 resolution=$OA_RESOLUTION

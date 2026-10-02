@@ -24,10 +24,6 @@ mkdir -p "$fake_termux/bin" "$fake_termux/var/lib/proot-distro/containers"
 mkdir -p "$fake_termux/var/lib/proot-distro/containers/keepme/rootfs"
 echo "untouched" > "$fake_termux/var/lib/proot-distro/containers/keepme/rootfs/marker"
 
-current_oci_ref="$(awk -F '=' '$1=="oci_reference" {print $2; exit}' "$ROOT/manifest/release.lock")"
-[[ -n "$current_oci_ref" ]] \
-  || { echo "release.lock missing oci_reference" >&2; exit 1; }
-
 # Fake container rootfs + a host runtime tree
 target_container="$fake_termux/var/lib/proot-distro/containers/omarchy-android"
 mkdir -p "$target_container/rootfs/etc"

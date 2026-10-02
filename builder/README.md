@@ -71,8 +71,10 @@ review; it never silently publishes a different image.
 Every push to `main` rebuilds the OCI image. A semantic release tag such as
 `v0.1.1` additionally downloads the checksum-pinned Android/Bionic host payload,
 assembles the host bundle, publishes the bundle and SHA-256 sidecar as a GitHub
-Release asset, verifies that the published OCI image is byte-identical to the
-one CI built by digest, and atomically updates `manifest/release.lock` on `main`.
+Release asset, and verifies that the published OCI image is byte-identical to
+the one CI built by digest. The installer on the phone picks the latest
+release via the `/releases/latest` redirect - this pipeline never writes to
+the repo's default branch.
 End users only pull the published OCI image and download the small host payload;
 they do not run this build pipeline.
 

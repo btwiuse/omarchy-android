@@ -18,6 +18,7 @@ OA_ASSUME_YES=false
 OA_ALLOW_UNTESTED=false
 OA_ALLOW_PROCESS_LIMIT=false
 OA_KEEP_TERMUX_PACKAGES=false
+OA_RELEASE_REPOSITORY='btwiuse/omarchy-android'
 
 print_help() {
   cat <<'EOF'
@@ -41,6 +42,7 @@ Options:
   --bundle PATH           Use a local OCI image-layout tarball (containing oci-layout and index.json) instead of pulling from the registry
   --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
+  --repository OWNER/REPO  GitHub repository to pull releases from (default: btwiuse/omarchy-android)
   --keep-termux-packages  (remove) Do not offer to uninstall Termux packages that the installer added
   --yes                   Accept non-destructive prompts
   --allow-untested        Permit an untested Android version
@@ -116,6 +118,11 @@ parse_options() {
         OA_CONTAINER="$(option_value --name "${1:-}")"
         ;;
       --name=*) OA_CONTAINER="${1#*=}" ;;
+      --repository)
+        shift
+        OA_RELEASE_REPOSITORY="$(option_value --repository "${1:-}")"
+        ;;
+      --repository=*) OA_RELEASE_REPOSITORY="${1#*=}" ;;
       --yes) OA_ASSUME_YES=true ;;
       --keep-termux-packages) OA_KEEP_TERMUX_PACKAGES=true ;;
       --allow-untested) OA_ALLOW_UNTESTED=true ;;
@@ -153,6 +160,8 @@ validate_options() {
   fi
 
   [[ "$OA_CONTAINER" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Invalid container name: $OA_CONTAINER"
+  [[ "$OA_RELEASE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+    || die "Invalid --repository value (expected OWNER/REPO): $OA_RELEASE_REPOSITORY"
   if [[ "$OA_ACTION" == "remove" ]]; then
     [[ -z "$OA_BUNDLE" ]] || die "--bundle cannot be combined with the remove action."
     [[ -z "$OA_HOST_BUNDLE" ]] || die "--host-bundle cannot be combined with the remove action."
@@ -173,6 +182,7 @@ Resolved configuration:
   bundle:       ${OA_BUNDLE:-download release image from registry}
   host bundle:  ${OA_HOST_BUNDLE:-download host payload archive}
   container:    $OA_CONTAINER
+  repository:   $OA_RELEASE_REPOSITORY
   dry run:      $OA_DRY_RUN
   process limit override: $OA_ALLOW_PROCESS_LIMIT
 EOF

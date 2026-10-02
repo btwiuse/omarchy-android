@@ -6,7 +6,6 @@ OA_BUILD_DEPENDENCIES_LOCK="${PROJECT_ROOT:?}/manifest/build-dependencies.lock"
 OA_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/artifacts.lock"
 OA_HOST_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/host-artifacts.lock"
 OA_OCI_IMAGES_LOCK="${PROJECT_ROOT:?}/manifest/oci-images.lock"
-OA_RELEASE_LOCK="${PROJECT_ROOT:?}/manifest/release.lock"
 
 component_record() {
   local requested="$1"
@@ -234,32 +233,4 @@ validate_patch_lock() {
   done < <(find "$PROJECT_ROOT/patches" -type f -name '*.patch' -print0)
 
   ((failures == 0))
-}
-
-read_lock_field() {
-  local lock_file="$1"
-  local key="$2"
-  awk -F '=' -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; found=1; exit} END {if (!found) exit 1}' \
-    "$lock_file"
-}
-
-validate_release_lock() {
-  local failures=0
-  [[ -f "$OA_RELEASE_LOCK" ]] || {
-    printf '%s: missing release lock\n' "$OA_RELEASE_LOCK" >&2
-    return 1
-  }
-  for key in version tag oci_reference host_bundle_asset host_bundle_url; do
-    if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
-      printf '%s: missing required field %s\n' "$OA_RELEASE_LOCK" "$key" >&2
-      failures=$((failures + 1))
-    fi
-  done
-  local oci_ref
-  oci_ref="$(read_lock_field "$OA_RELEASE_LOCK" oci_reference)"
-  [[ "$oci_ref" =~ ^[A-Za-z0-9._/-]+(:[0-9]+)?(/[A-Za-z0-9._/-]+)*:[A-Za-z0-9._-]+$ ]] || {
-    printf '%s: oci_reference is not a valid registry ref\n' "$OA_RELEASE_LOCK" >&2
-    failures=$((failures + 1))
-  }
-  (( failures == 0 ))
 }
