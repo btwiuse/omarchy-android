@@ -244,21 +244,14 @@ read_lock_field() {
 }
 
 validate_release_lock() {
-  local format="" failures=0
+  local failures=0
   [[ -f "$OA_RELEASE_LOCK" ]] || {
     printf '%s: missing release lock\n' "$OA_RELEASE_LOCK" >&2
     return 1
   }
-  format="$(read_lock_field "$OA_RELEASE_LOCK" format 2>/dev/null || true)"
-  if [[ "$format" != "2" ]]; then
-    printf '%s: unsupported format=%s (expected 2)\n' "$OA_RELEASE_LOCK" "$format" >&2
-    failures=$((failures + 1))
-    (( failures == 0 ))
-    return
-  fi
   for key in version tag oci_reference host_bundle_asset host_bundle_url; do
     if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
-      printf '%s: missing required field %s for format=2\n' "$OA_RELEASE_LOCK" "$key" >&2
+      printf '%s: missing required field %s\n' "$OA_RELEASE_LOCK" "$key" >&2
       failures=$((failures + 1))
     fi
   done

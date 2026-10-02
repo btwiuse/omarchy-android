@@ -43,10 +43,6 @@ image_manifest="$image_output/IMAGE-MANIFEST"
   printf 'Image manifest is missing: %s\n' "$image_manifest" >&2
   exit 1
 }
-[[ "$(awk -F= '$1=="format" {print $2}' "$image_manifest")" == 2 ]] || {
-  printf 'Image manifest is not the OCI format=2.\n' >&2
-  exit 1
-}
 [[ "$(awk -F= '$1=="version" {print $2}' "$image_manifest")" == "$version" ]] || {
   printf 'Image manifest version does not match %s.\n' "$version" >&2
   exit 1
@@ -161,7 +157,6 @@ base_layer="$(awk -F= '$1=="base_layer" {print $2}' "$image_manifest")"
   exit 1
 }
 cat > "$bundle_root/BUNDLE-MANIFEST" <<EOF
-format=2
 version=$version
 architecture=aarch64
 oci_reference=$oci_reference

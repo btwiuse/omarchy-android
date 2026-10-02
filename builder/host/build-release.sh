@@ -106,7 +106,6 @@ components_lock_sha256="$(sha256sum "$ROOT/manifest/components.lock" | awk '{pri
 packages_lock_sha256="$(sha256sum "$packages_lock" | awk '{print $1}')"
 artifacts_lock_sha256="$(sha256sum "$ROOT/manifest/artifacts.lock" | awk '{print $1}')"
 cat > "$host_temporary/BUNDLE-MANIFEST" <<EOF
-format=2
 version=$version
 architecture=aarch64
 oci_reference=$image_tag
@@ -142,7 +141,6 @@ mv "$host_bundle.partial" "$host_bundle"
 chmod 0644 "$host_bundle" "$host_bundle.sha256"
 
 cat > "$release_work/IMAGE-MANIFEST" <<EOF
-format=2
 version=$version
 architecture=aarch64
 oci_repository=local

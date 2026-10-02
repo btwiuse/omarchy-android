@@ -2,7 +2,6 @@
 
 OA_INSTALL_TEMP=''
 OA_INSTALL_LOCK=''
-OA_BUNDLE_CACHE=''
 OA_CREATED_CONTAINER=false
 OA_CREATED_PREFIX=false
 
@@ -61,10 +60,6 @@ release_lock_field() {
     "$PROJECT_ROOT/manifest/release.lock"
 }
 
-release_lock_format() {
-  release_lock_field format 2>/dev/null || printf '%s\n' 2
-}
-
 download_with_resume() {
   local url="$1"
   local target="$2"
@@ -81,12 +76,11 @@ download_with_resume() {
 }
 
 download_host_bundle() {
-  local lock_asset lock_url cached target local_bundle
+  local lock_asset lock_url target local_bundle
 
   lock_asset="$(release_lock_field host_bundle_asset)" || die 'Release lock has no host_bundle_asset.'
   lock_url="$(release_lock_field host_bundle_url)" || die 'Release lock has no host_bundle_url.'
 
-  mkdir -p "$OA_BUNDLE_CACHE"
   target="$OA_INSTALL_TEMP/$lock_asset"
 
   if [[ -n "$OA_HOST_BUNDLE" ]]; then
@@ -97,20 +91,10 @@ download_host_bundle() {
     return 0
   fi
 
-  cached="$OA_BUNDLE_CACHE/$lock_asset"
-
-  if [[ -f "$cached" ]]; then
-    info "Reusing host payload from cache" >&2
-    cp -f "$cached" "$target"
-    printf '%s' "$target"
-    return 0
-  fi
-
   info "Downloading host payload" >&2
   if ! download_with_resume "$lock_url" "$target"; then
     die 'Host payload download failed. Check the network connection or pass --host-bundle PATH.'
   fi
-  cp -f "$target" "$cached"
   printf '%s' "$target"
 }
 
@@ -144,8 +128,6 @@ verify_and_extract_bundle() {
   else
     die 'Bundle manifest is missing.'
   fi
-  [[ "$(awk -F= '$1=="format" {print $2}' "$manifest_file")" == 2 ]] || \
-    die 'Unsupported bundle format.'
   [[ "$(awk -F= '$1=="architecture" {print $2}' "$manifest_file")" == aarch64 ]] || \
     die 'Release bundle is not ARM64.'
   manifest_version="$(awk -F= '$1=="version" {print $2}' "$manifest_file")"
@@ -307,8 +289,6 @@ perform_install() {
   mkdir -p "$(dirname -- "$OA_PREFIX")"
   mkdir "$OA_INSTALL_LOCK" 2>/dev/null || die "Another installer owns the lock: $OA_INSTALL_LOCK"
   OA_INSTALL_TEMP="$(mktemp -d "${PREFIX:?}/tmp/omarchy-android-install.XXXXXX")"
-  OA_BUNDLE_CACHE="${PREFIX:?}/var/cache/omarchy-android/bundle"
-  mkdir -p "$OA_BUNDLE_CACHE"
   trap cleanup_install EXIT
 
   if [[ -n "$OA_BUNDLE" ]]; then
@@ -351,7 +331,6 @@ perform_install() {
   smoke_test_install
 
   cat > "$OA_PREFIX/INSTALL-MANIFEST" <<EOF
-format=2
 version=$(awk -F= '$1=="version" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")
 oci_reference=$(release_lock_field oci_reference 2>/dev/null || printf '')
 container=$OA_CONTAINER
@@ -377,8 +356,7 @@ EOF
 # unless the caller accepts the optional removal prompt.
 perform_remove() {
   local termux_prefix target_root stop_helper
-  local bundle_cache
-  local removed_container=false removed_prefix=false removed_bundle=false
+  local removed_container=false removed_prefix=false
 
   termux_prefix="${PREFIX:?}"
   target_root="$termux_prefix/var/lib/proot-distro/containers/$OA_CONTAINER/rootfs"
@@ -420,17 +398,6 @@ perform_remove() {
     rmdir "$install_lock_dir" 2>/dev/null || true
   fi
 
-  bundle_cache="$termux_prefix/var/cache/omarchy-android/bundle"
-  if [[ -r "$PROJECT_ROOT/manifest/release.lock" ]]; then
-    local asset
-    asset="$(awk -F '=' '$1=="host_bundle_asset" {print $2; exit}' \
-      "$PROJECT_ROOT/manifest/release.lock")"
-    if [[ -n "$asset" && -f "$bundle_cache/$asset" ]]; then
-      rm -f "$bundle_cache/$asset"
-      removed_bundle=true
-    fi
-  fi
-
   if [[ "$OA_KEEP_TERMUX_PACKAGES" != true ]]; then
     offer_remove_termux_packages
   fi
@@ -438,7 +405,6 @@ perform_remove() {
   local summary=()
   [[ "$removed_container" == true ]] && summary+=("container $OA_CONTAINER")
   [[ "$removed_prefix" == true ]] && summary+=("host runtime $OA_PREFIX")
-  [[ "$removed_bundle" == true ]] && summary+=("cached host bundle")
   if (( ${#summary[@]} )); then
     local joined
     joined="$(IFS=', '; printf '%s' "${summary[*]}")"
