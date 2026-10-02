@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # Omarchy Android host-side environment.
 # Adds the on-device host runtime to PATH and points the host scripts at
-# the installer-generated config file.
+# the installer-generated config file. Safe to source from ~/.bashrc.
+
+# BASH_SOURCE[-1] is `env` itself when sourced normally, and $0 when
+# invoked as a script. Resolve the repo root from the location of this
+# file.
+_env_file="${BASH_SOURCE[0]:-$0}"
+PROJECT_ROOT="$(cd -- "$(dirname -- "$_env_file")" && pwd -P)"
+export PROJECT_ROOT
 
 # shellcheck source=lib/common.sh
 source "$PROJECT_ROOT/lib/common.sh"
@@ -10,15 +17,18 @@ export OMARCHY_ANDROID_HOME="$OA_HOST_DIR"
 export OMARCHY_ANDROID_CONFIG="$OA_HOST_DIR/config/runtime.conf"
 export PATH="$OA_HOST_DIR/bin:$PATH"
 
-cat <<EOF
+# Stay quiet when sourced (no banner spam on every new shell). Print
+# only when run directly.
+if [[ "${BASH_SOURCE[0]:-$0}" == "$_env_file" && "${-}" != *i* ]]; then
+  cat <<EOF
 Omarchy Android host environment loaded.
 
   OMARCHY_ANDROID_HOME    = $OMARCHY_ANDROID_HOME
   OMARCHY_ANDROID_CONFIG  = $OMARCHY_ANDROID_CONFIG
-  PATH                    = $PATH
 
 Run 'omarchy-android {start|stop|status|hyprctl}' from any shell that has
-sourced this file. To run from ~/.bashrc or ~/.zshrc, add a single line:
+sourced it. To make it available in every shell, add this to ~/.bashrc:
 
-  source /path/to/omarchy-android/env
+  source $PROJECT_ROOT/env
 EOF
+fi
