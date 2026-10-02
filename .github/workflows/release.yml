@@ -251,9 +251,13 @@ jobs:
           OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
-          default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
-            | sed 's|^origin/||')"
-          : "${default_branch:=main}"
+          default_branch="$(git config --get init.defaultBranch || echo main)"
+          # We have an explicit fetch-depth: 0 checkout, so refs/remotes/origin/HEAD
+          # is reliable; fall back to 'main' for old workflow_dispatch runs.
+          if [[ -z "$default_branch" || "$default_branch" == "HEAD" ]]; then
+            default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD \
+              | sed 's|^origin/||' || echo main)"
+          fi
           git fetch --depth 1 origin "$default_branch"
           git switch --force-create "$default_branch" "origin/$default_branch"
           ./scripts/update-release-lock.sh \
