@@ -85,4 +85,5 @@ done
 "$ROOT/tests/options.sh"
 "$ROOT/tests/runtime.sh"
 "$ROOT/tests/lock-format.sh"
+"$ROOT/tests/remove.sh"
 printf 'validation passed\n'

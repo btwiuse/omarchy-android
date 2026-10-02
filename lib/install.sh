@@ -138,18 +138,24 @@ download_host_bundle() {
 }
 
 fetch_release_rootfs() {
-  local oci_ref oci_digest cache_dir cache_record
+  local oci_ref oci_digest cache_dir cache_record cache_name
 
   oci_ref="$(release_lock_field oci_reference)" || die 'Release lock has no oci_reference.'
   oci_digest="$(release_lock_field oci_manifest_digest)" || die 'Release lock has no oci_manifest_digest.'
   [[ "$oci_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Invalid OCI manifest digest in release lock.'
 
   cache_dir="${PREFIX:?}/var/cache/omarchy-android/oci"
-  cache_record="$cache_dir/$oci_ref"
+  # The lock stores the OCI reference as `host/owner/repo:tag`; the slashes
+  # would be interpreted as directory separators when used as a flat filename,
+  # so hash the reference into a single component the kernel can hold in a
+  # file name. proot-distro's registry install path still uses the original
+  # oci_ref returned below.
+  cache_name="$(printf '%s' "$oci_ref" | sha256sum | awk '{print $1}')"
+  cache_record="$cache_dir/$cache_name"
+  mkdir -p "$cache_dir"
   if [[ -f "$cache_record" ]] && grep -qxF "$oci_digest" "$cache_record"; then
     info "Reusing cached OCI manifest for $oci_ref" >&2
   else
-    mkdir -p "$cache_dir"
     printf '%s\n' "$oci_digest" > "$cache_record"
   fi
 
@@ -516,4 +522,148 @@ EOF
   OA_CREATED_PREFIX=false
   success 'Omarchy Android installed and passed the clean-image smoke tests.'
   printf '\nStart it with:\n  %s/bin/omarchy-android start\n' "$OA_PREFIX"
+}
+
+# Reverse of perform_install. Stops the running session, deletes the
+# proot-distro container (which drops every guest file under it), the
+# host runtime tree, and the cached installer artifacts for this release.
+# Does NOT touch other proot-distro containers or shared Termux packages
+# unless the caller accepts the optional removal prompt.
+perform_remove() {
+  local termux_prefix target_root stop_helper
+  local bundle_cache oci_record
+  local removed_container=false removed_prefix=false removed_bundle=false removed_oci=false
+
+  termux_prefix="${PREFIX:?}"
+  target_root="$termux_prefix/var/lib/proot-distro/containers/$OA_CONTAINER/rootfs"
+
+  if [[ ! -e "$target_root" && ! -e "$OA_PREFIX" ]]; then
+    die "No installation found for container '$OA_CONTAINER' at $target_root or $OA_PREFIX."
+  fi
+
+  confirm_remove
+
+  stop_helper="$OA_PREFIX/bin/omarchy-android-stop"
+  if [[ -x "$stop_helper" ]]; then
+    info 'Stopping any running Omarchy Android session'
+    "$stop_helper" || true
+  else
+    warn "Host runtime stop helper not present at $stop_helper; skipping stop step."
+  fi
+
+  if [[ -e "$target_root" ]]; then
+    info "Removing proot-distro container $OA_CONTAINER"
+    if ! proot-distro remove "$OA_CONTAINER"; then
+      warn "proot-distro remove reported an error; forcing leftover path removal."
+      find "$target_root" -depth -delete 2>/dev/null || true
+      [[ ! -d "$termux_prefix/var/lib/proot-distro/containers/$OA_CONTAINER" ]] \
+        || rmdir "$termux_prefix/var/lib/proot-distro/containers/$OA_CONTAINER" 2>/dev/null || true
+    fi
+    removed_container=true
+  fi
+
+  if [[ -e "$OA_PREFIX" ]]; then
+    info "Removing host runtime at $OA_PREFIX"
+    find "$OA_PREFIX" -depth -delete 2>/dev/null || true
+    rmdir "$OA_PREFIX" 2>/dev/null || true
+    removed_prefix=true
+  fi
+
+  local install_lock_dir="${OA_PREFIX}.install-lock"
+  if [[ -d "$install_lock_dir" ]]; then
+    rmdir "$install_lock_dir" 2>/dev/null || true
+  fi
+
+  bundle_cache="$termux_prefix/var/cache/omarchy-android/bundle"
+  if [[ -r "$PROJECT_ROOT/manifest/release.lock" ]]; then
+    local asset
+    asset="$(awk -F '=' '$1=="host_bundle_asset" {print $2; exit}' \
+      "$PROJECT_ROOT/manifest/release.lock")"
+    if [[ -n "$asset" && -f "$bundle_cache/$asset" ]]; then
+      rm -f "$bundle_cache/$asset" "$bundle_cache/$asset.sha256"
+      removed_bundle=true
+    fi
+    local oci_ref
+    oci_ref="$(awk -F '=' '$1=="oci_reference" {print $2; exit}' \
+      "$PROJECT_ROOT/manifest/release.lock")"
+    if [[ -n "$oci_ref" ]]; then
+      # Match the OCI cache naming used by fetch_release_rootfs: hash the
+      # reference into a flat filename because the raw ref contains '/' and
+      # ':' which the kernel rejects as a single filename component.
+      local oci_cache_name
+      oci_cache_name="$(printf '%s' "$oci_ref" | sha256sum | awk '{print $1}')"
+      oci_record="$termux_prefix/var/cache/omarchy-android/oci/$oci_cache_name"
+      if [[ -f "$oci_record" ]]; then
+        rm -f "$oci_record"
+        removed_oci=true
+      fi
+    fi
+  fi
+
+  if [[ "$OA_KEEP_TERMUX_PACKAGES" != true ]]; then
+    offer_remove_termux_packages
+  fi
+
+  local summary=()
+  [[ "$removed_container" == true ]] && summary+=("container $OA_CONTAINER")
+  [[ "$removed_prefix" == true ]] && summary+=("host runtime $OA_PREFIX")
+  [[ "$removed_bundle" == true ]] && summary+=("cached host bundle")
+  [[ "$removed_oci" == true ]] && summary+=("cached OCI digest")
+  if (( ${#summary[@]} )); then
+    local joined
+    joined="$(IFS=', '; printf '%s' "${summary[*]}")"
+    success "Omarchy Android removal completed: removed $joined."
+    printf '\nNothing remains on this device for container %s.\n' "$OA_CONTAINER"
+  else
+    success 'Omarchy Android removal found no install artifacts to remove.'
+  fi
+}
+
+confirm_remove() {
+  [[ "$OA_ASSUME_YES" == true ]] && return 0
+  printf 'Remove Omarchy Android (container %s, host runtime %s)? [y/N] ' \
+    "$OA_CONTAINER" "$OA_PREFIX"
+  read -r answer
+  case "$answer" in y|Y|yes|YES) ;; *) die 'Removal cancelled.' ;; esac
+}
+
+# Termux packages the installer added are shared host dependencies; they
+# may be in use by other tooling or proot-distro distributions. Offer
+# the user the choice and only remove what they explicitly accept.
+offer_remove_termux_packages() {
+  local pkg_list=(
+    x11-repo
+    proot-distro
+    termux-x11-nightly
+    weston
+    pulseaudio
+    xorg-xwininfo
+    mesa-vulkan-icd-freedreno
+    virglrenderer-android
+    tar
+    curl
+  )
+  local installed=()
+  local pkg
+  for pkg in "${pkg_list[@]}"; do
+    dpkg -s "$pkg" >/dev/null 2>&1 && installed+=("$pkg")
+  done
+  (( ${#installed[@]} )) || return 0
+
+  local answer
+  if [[ "$OA_ASSUME_YES" == true ]]; then
+    answer='n'
+    warn 'Skipping Termux package removal under --yes; packages may be in use elsewhere.'
+  else
+    printf 'Also uninstall these Termux packages? %s [y/N] ' "${installed[*]}"
+    read -r answer
+  fi
+  case "$answer" in y|Y|yes|YES)
+    apt-get purge -y "${installed[@]}" >/dev/null 2>&1 \
+      || warn "apt-get purge reported an error; some packages may not have been removed."
+    apt-get autoremove -y >/dev/null 2>&1 || true
+    info 'Uninstalled shared Termux packages.'
+    ;;
+  *) info 'Left shared Termux packages installed.' ;;
+  esac
 }

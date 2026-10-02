@@ -18,6 +18,7 @@ OA_DRY_RUN=false
 OA_ASSUME_YES=false
 OA_ALLOW_UNTESTED=false
 OA_ALLOW_PROCESS_LIMIT=false
+OA_KEEP_TERMUX_PACKAGES=false
 
 print_help() {
   cat <<'EOF'
@@ -25,6 +26,7 @@ Usage: ./install.sh [ACTION] [OPTIONS]
 
 Actions:
   install                 Plan or perform an installation (default)
+  remove                  Uninstall a previous installation without touching shared Termux packages
   doctor                  Inspect host readiness without changing anything
   print-config            Print the resolved configuration
   help                    Show this help
@@ -41,13 +43,15 @@ Options:
   --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
   --prefix PATH           Host runtime path
+  --keep-termux-packages  (remove) Do not offer to uninstall Termux packages that the installer added
   --yes                   Accept non-destructive prompts
   --allow-untested        Permit an untested Android version
   --allow-process-limit   Continue with Android's restrictive process fallback
   --dry-run               Print the complete plan and change nothing
   -h, --help              Show this help
 
-Existing containers are never replaced implicitly. File sharing is opt-in.
+Existing containers are never replaced implicitly. File sharing is opt-in. Remove never touches
+guest data inside the container or any other proot-distro distribution you have installed.
 EOF
 }
 
@@ -61,7 +65,7 @@ option_value() {
 parse_options() {
   while (($#)); do
     case "$1" in
-      install|doctor|print-config|help)
+      install|remove|doctor|print-config|help)
         OA_ACTION="$1"
         ;;
       -h|--help)
@@ -120,6 +124,7 @@ parse_options() {
         ;;
       --prefix=*) OA_PREFIX="${1#*=}" ;;
       --yes) OA_ASSUME_YES=true ;;
+      --keep-termux-packages) OA_KEEP_TERMUX_PACKAGES=true ;;
       --allow-untested) OA_ALLOW_UNTESTED=true ;;
       --allow-process-limit) OA_ALLOW_PROCESS_LIMIT=true ;;
       --dry-run) OA_DRY_RUN=true ;;
@@ -157,6 +162,10 @@ validate_options() {
   [[ "$OA_CONTAINER" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "Invalid container name: $OA_CONTAINER"
   [[ "$OA_PREFIX" == /* ]] || die "--prefix must be an absolute path."
 
+  if [[ "$OA_ACTION" == "remove" ]]; then
+    [[ -z "$OA_BUNDLE" ]] || die "--bundle cannot be combined with the remove action."
+    [[ -z "$OA_HOST_BUNDLE" ]] || die "--host-bundle cannot be combined with the remove action."
+  fi
 }
 
 print_config() {

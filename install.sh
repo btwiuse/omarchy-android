@@ -44,6 +44,18 @@ main() {
 
       perform_install
       ;;
+    remove)
+      print_config
+      build_remove_plan
+      print_install_plan
+
+      if [[ "$OA_DRY_RUN" == true ]]; then
+        success "Dry run complete; no system state was changed."
+        return 0
+      fi
+
+      perform_remove
+      ;;
     *)
       die "Internal error: unsupported action '$OA_ACTION'."
       ;;
