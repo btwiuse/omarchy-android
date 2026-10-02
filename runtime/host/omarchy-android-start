@@ -168,58 +168,80 @@ ensure_audio_bridge() {
       timeout --kill-after=0.2 0.5 pactl info >/dev/null 2>&1
   }
 
-  if ! pulse_server_responding; then
-    mkdir -p "$pulse_runtime" "$pulse_state"
-    chmod 700 "$pulse_runtime" "$pulse_state"
+  mkdir -p "$pulse_runtime" "$pulse_state"
+  chmod 700 "$pulse_runtime" "$pulse_state"
 
-    # Android may kill the parent Termux shell without killing a daemonized
-    # PulseAudio child. More than one stale bridge can then survive while only
-    # the newest PID is recorded. Match this install's private log target
-    # before stopping anything so an unrelated Termux audio server is never
-    # touched.
-    for proc_dir in /proc/[0-9]*; do
-      pulse_pid="${proc_dir##*/}"
-      [[ -r "$proc_dir/cmdline" ]] || continue
-      cmdline="$( { tr '\0' ' ' < "$proc_dir/cmdline"; } 2>/dev/null || true)"
-      if [[ "$cmdline" == *"pulseaudio -n --daemonize=yes"* &&
-            "$cmdline" == *"--log-target=file:$state_dir/pulse.log"* ]]; then
-        kill -TERM "$pulse_pid" 2>/dev/null || true
-        stale_pulse_pids+=("$pulse_pid")
-      fi
-    done
-    sleep 0.2
-    for pulse_pid in "${stale_pulse_pids[@]}"; do
-      [[ -r "/proc/$pulse_pid/cmdline" ]] || continue
-      cmdline="$( { tr '\0' ' ' < "/proc/$pulse_pid/cmdline"; } 2>/dev/null || true)"
-      if [[ "$cmdline" == *"--log-target=file:$state_dir/pulse.log"* ]]; then
+  # Always replace whatever is bound to 4715: a bridge from a previous
+  # session that omarchy-android-stop never tracked (different log target,
+  # debug-only flags, manually launched for diagnostics) would otherwise
+  # satisfy pulse_server_responding and let us skip spawning our own. The
+  # existing daemon may have no AAudio sink loaded, in which case the guest
+  # has no audio output even though 4715 answers. Match anything claiming
+  # our private runtime dir, plus the canonical launch form, so we own the
+  # bridge we hand to the guest.
+  for proc_dir in /proc/[0-9]*; do
+    pulse_pid="${proc_dir##*/}"
+    [[ -r "$proc_dir/cmdline" ]] || continue
+    cmdline="$( { tr '\0' ' ' < "$proc_dir/cmdline"; } 2>/dev/null || true)"
+    case "$cmdline" in
+      *"pulseaudio -n --daemonize=yes"*"-L "*"module-aaudio-sink"*)
+        if [[ "$cmdline" == *"--log-target=file:$state_dir/pulse.log"* ||
+              "$cmdline" == *"$pulse_runtime"* ]]; then
+          kill -TERM "$pulse_pid" 2>/dev/null || true
+          stale_pulse_pids+=("$pulse_pid")
+        fi
+        ;;
+    esac
+  done
+  sleep 0.2
+  for pulse_pid in "${stale_pulse_pids[@]}"; do
+    [[ -r "/proc/$pulse_pid/cmdline" ]] || continue
+    cmdline="$( { tr '\0' ' ' < "/proc/$pulse_pid/cmdline"; } 2>/dev/null || true)"
+    case "$cmdline" in
+      *"pulseaudio -n --daemonize=yes"*)
         kill -KILL "$pulse_pid" 2>/dev/null || true
-      fi
-    done
+        ;;
+    esac
+  done
 
-    # Clean only this dedicated daemon's validated runtime after an unclean
-    # Android process kill. No shared Termux PulseAudio state is touched.
-    if [[ -r "$pulse_runtime/pid" ]]; then
-      read -r pulse_pid < "$pulse_runtime/pid"
-      if [[ "$pulse_pid" =~ ^[0-9]+$ ]]; then
-        kill -TERM "$pulse_pid" 2>/dev/null || true
-        sleep 0.2
-      fi
+  # Clean only this dedicated daemon's validated runtime after an unclean
+  # Android process kill. No shared Termux PulseAudio state is touched.
+  if [[ -r "$pulse_runtime/pid" ]]; then
+    read -r pulse_pid < "$pulse_runtime/pid"
+    if [[ "$pulse_pid" =~ ^[0-9]+$ ]]; then
+      kill -TERM "$pulse_pid" 2>/dev/null || true
+      sleep 0.2
     fi
-    [[ -S "$pulse_runtime/native" ]] && unlink "$pulse_runtime/native"
-    [[ -f "$pulse_runtime/pid" ]] && unlink "$pulse_runtime/pid"
+  fi
+  [[ -S "$pulse_runtime/native" ]] && unlink "$pulse_runtime/native"
+  [[ -f "$pulse_runtime/pid" ]] && unlink "$pulse_runtime/pid"
 
-    PULSE_NO_DBUS=1 PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
-      pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
-      --log-target="file:$state_dir/pulse.log" \
-      -L module-aaudio-sink \
-      -L module-sles-source \
-      -L module-native-protocol-unix \
-      -L 'module-native-protocol-tcp listen=127.0.0.1 port=4715 auth-ip-acl=127.0.0.1' || return 1
+  PULSE_NO_DBUS=1 PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
+    pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
+    --log-target="file:$state_dir/pulse.log" \
+    -L module-aaudio-sink \
+    -L module-sles-source \
+    -L module-native-protocol-unix \
+    -L 'module-native-protocol-tcp listen=127.0.0.1 port=4715 auth-ip-acl=127.0.0.1' || return 1
 
-    for _ in {1..20}; do
-      pulse_server_responding && break
-      sleep 0.1
-    done
+  for _ in {1..20}; do
+    pulse_server_responding && break
+    sleep 0.1
+  done
+
+  # Promote pulseaudio's runtime pidfile into $state_dir so omarchy-android-stop
+  # can tear it down without resorting to a cmdline sweep that would also
+  # match the live bridge we just spawned (its --log-target=file:$state_dir/pulse.log
+  # is the same string the stop script uses to identify stale orphans).
+  pulse_pid=""
+  if [[ -r "$pulse_runtime/pid" ]]; then
+    read -r pulse_pid < "$pulse_runtime/pid"
+  fi
+  [[ "$pulse_pid" =~ ^[0-9]+$ ]] || pulse_pid=""
+  if [[ -n "$pulse_pid" ]]; then
+    printf '%s\n' "$pulse_pid" > "$state_dir/pulse.pid"
+  else
+    rm -f "$state_dir/pulse.pid"
   fi
 
   pulse_server_responding || return 1
