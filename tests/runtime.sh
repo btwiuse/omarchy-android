@@ -65,7 +65,13 @@ grep -Fx 'gawk' "$ROOT/builder/guest/runtime-packages.txt" >/dev/null
 grep -Fx 'wtype' "$ROOT/builder/guest/runtime-packages.txt" >/dev/null
 grep -F 'android-host|0.1.0|https://github.com/BlackFireAlex/omarchy-android/releases/download/' \
   "$ROOT/manifest/host-artifacts.lock" >/dev/null
-grep -F 'stop_orphans "pulseaudio -n --daemonize=yes"' \
-  "$ROOT/runtime/host/omarchy-android-stop" >/dev/null
+# Pulseaudio is torn down via its pidfile (written by start), not via a
+# cmdline sweep. A cmdline sweep would also match the live bridge start
+# just spawned, so the start/stop split must rely on the pidfile path.
+grep -F 'pulse.pid' "$ROOT/runtime/host/omarchy-android-stop" >/dev/null
+if grep -F 'stop_orphans "pulseaudio -n' "$ROOT/runtime/host/omarchy-android-stop" >/dev/null; then
+  printf 'pulseaudio should be torn down via pidfile, not via stop_orphans\n' >&2
+  exit 1
+fi
 
 printf 'runtime template tests passed\n'
