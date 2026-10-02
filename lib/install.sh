@@ -178,7 +178,7 @@ EOF
 
 install_host_runtime() {
   local unpacked="$OA_INSTALL_TEMP/unpacked"
-  install -d -m 0755 "$OA_HOST_DIR/bin" "$OA_HOST_DIR/opt/weston/lib/libweston-14"
+  install -d -m 0755 "$OA_HOST_DIR/bin" "$OA_HOST_DIR/config" "$OA_HOST_DIR/opt/weston/lib/libweston-14"
 
   install -m 0755 \
     "$PROJECT_ROOT/runtime/host/omarchy-android-start" \
@@ -193,6 +193,8 @@ install_host_runtime() {
   install -m 0755 \
     "$unpacked/host/opt/weston/lib/libweston-14/x11-backend.so" \
     "$OA_HOST_DIR/opt/weston/lib/libweston-14/x11-backend.so"
+  ln -sf "$PROJECT_ROOT/runtime/host/omarchy-android" \
+    "$OA_HOST_DIR/bin/omarchy-android"
   write_runtime_config
 }
 

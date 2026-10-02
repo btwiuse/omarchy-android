@@ -14,7 +14,13 @@ source "$PROJECT_ROOT/lib/common.sh"
 
 export OMARCHY_ANDROID_HOME="$OA_HOST_DIR"
 export OMARCHY_ANDROID_CONFIG="$OA_HOST_DIR/config/runtime.conf"
-export PATH="$OA_HOST_DIR/bin:$PATH"
+export OMARCHY_ANDROID_REPO="$PROJECT_ROOT"
+
+# The launcher lives in the repo and routes every command to either the
+# in-tree installer or the installed host runtime. PATH picks it up
+# first, so 'omarchy-android' works before AND after install. The host
+# runtime's own bin/ stays on PATH for direct calls to start/stop/etc.
+export PATH="$OA_HOST_DIR/bin:$PROJECT_ROOT/runtime/host:$PATH"
 
 # Stay quiet when sourced (no banner spam on every new shell). Print
 # only when run directly (`bash /path/to/env` with BASH_SOURCE unset).

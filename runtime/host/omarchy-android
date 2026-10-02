@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Omarchy Android portable launcher.
+# Forwards every call to either the in-tree installer (when no host
+# runtime is installed yet) or the installed host runtime. The launcher
+# itself lives at runtime/host/omarchy-android and is exposed on $PATH
+# by ./env; install also drops a symlink to it under
+# .work/host-runtime/bin/ so the same launcher handles every action
+# regardless of whether the host runtime has been installed yet.
+
+set -euo pipefail
+
+# Resolve the repo root. Prefer OMARCHY_ANDROID_REPO (exported by env),
+# fall back to a derivation from BASH_SOURCE[0] when run before env has
+# been sourced (e.g. on first install).
+if [[ -n "${OMARCHY_ANDROID_REPO:-}" && -d "${OMARCHY_ANDROID_REPO}" ]]; then
+  repo_root="$(cd -- "$OMARCHY_ANDROID_REPO" && pwd -P)"
+else
+  repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+fi
+export OMARCHY_ANDROID_REPO="$repo_root"
+
+action="${1:-}"
+shift || true
+
+case "$action" in
+  install|remove|doctor|print-config)
+    exec "$repo_root/install.sh" "$action" "$@"
+    ;;
+  help|--help|-h)
+    exec "$repo_root/install.sh" --help
+    ;;
+  "")
+    exec "$repo_root/install.sh" "$@"
+    ;;
+  start|stop|status|hyprctl)
+    OA_HOST_DIR="$repo_root/.work/host-runtime"
+    bin="$OA_HOST_DIR/bin/omarchy-android-$action"
+    if [[ -x "$bin" ]]; then
+      exec "$bin" "$@"
+    fi
+    printf 'omarchy-android %s: host runtime is not installed at %s.\n' \
+      "$action" "$OA_HOST_DIR" >&2
+    printf 'Run "omarchy-android install" to set it up first.\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'omarchy-android: unknown action "%s".\n' "$action" >&2
+    printf 'Supported: install, remove, start, stop, status, hyprctl, doctor, print-config, help.\n' >&2
+    exit 2
+    ;;
+esac
