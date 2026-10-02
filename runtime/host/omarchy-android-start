@@ -208,7 +208,7 @@ ensure_audio_bridge() {
     [[ -S "$pulse_runtime/native" ]] && unlink "$pulse_runtime/native"
     [[ -f "$pulse_runtime/pid" ]] && unlink "$pulse_runtime/pid"
 
-    PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
+    PULSE_NO_DBUS=1 PULSE_RUNTIME_PATH="$pulse_runtime" PULSE_STATE_PATH="$pulse_state" \
       pulseaudio -n --daemonize=yes --exit-idle-time=-1 \
       --log-target="file:$state_dir/pulse.log" \
       -L module-aaudio-sink \
