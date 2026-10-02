@@ -26,11 +26,8 @@ case "$action" in
   install|remove|doctor|print-config)
     exec "$repo_root/install.sh" "$action" "$@"
     ;;
-  help|--help|-h)
+  help|--help|-h|"")
     exec "$repo_root/install.sh" --help
-    ;;
-  "")
-    exec "$repo_root/install.sh" "$@"
     ;;
   start|stop|status|hyprctl)
     OA_HOST_DIR="$repo_root/.work/host-runtime"
