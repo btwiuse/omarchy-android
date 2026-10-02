@@ -251,6 +251,9 @@ jobs:
           OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
+          oci_reference="$OCI_REFERENCE"
+          oci_manifest_digest="$OCI_MANIFEST_DIGEST"
+          host_bundle_asset="$HOST_BUNDLE_ASSET"
           default_branch="$(git config --get init.defaultBranch || echo main)"
           # We have an explicit fetch-depth: 0 checkout, so refs/remotes/origin/HEAD
           # is reliable; fall back to 'main' for old workflow_dispatch runs.
@@ -265,7 +268,7 @@ jobs:
             "$GITHUB_REPOSITORY" \
             "$oci_reference" \
             "$oci_manifest_digest" \
-            "$HOST_BUNDLE_ASSET" \
+            "$host_bundle_asset" \
             "$host_bundle_sha256"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
