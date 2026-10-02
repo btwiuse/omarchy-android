@@ -62,10 +62,7 @@ release_lock_field() {
 }
 
 release_lock_format() {
-  release_lock_field format 2>/dev/null || {
-    printf '%s\n' 1
-    return 0
-  }
+  release_lock_field format 2>/dev/null || printf '%s\n' 2
 }
 
 download_with_resume() {
@@ -84,13 +81,7 @@ download_with_resume() {
 }
 
 download_host_bundle() {
-  local lock_format lock_asset lock_url cached target
-
-  lock_format="$(release_lock_format)"
-  if [[ "$lock_format" != "2" ]]; then
-    printf ''
-    return 1
-  fi
+  local lock_asset lock_url cached target local_bundle
 
   lock_asset="$(release_lock_field host_bundle_asset)" || die 'Release lock has no host_bundle_asset.'
   lock_url="$(release_lock_field host_bundle_url)" || die 'Release lock has no host_bundle_url.'
@@ -131,82 +122,8 @@ fetch_release_rootfs() {
   printf '%s' "$oci_ref"
 }
 
-# Format 1 (legacy): a single bundle tarball containing the rootfs tarball plus
-# the host payload. Format 2: a small host payload archive plus an OCI image
-# pulled directly from the registry. Returns the unpacked host payload path.
-download_release_bundle() {
-  local lock_format lock_asset lock_url lock_sha cached cached_sum target bundle
-
-  lock_format="$(release_lock_format)"
-  if [[ "$lock_format" == "2" ]]; then
-    printf ''
-    return 1
-  fi
-
-  lock_asset="$(release_lock_field asset)" || die 'Release lock has no asset name.'
-  lock_url="$(release_lock_field url)" || die 'Release lock has no download URL.'
-  lock_sha="$(release_lock_field sha256)" || die 'Release lock has no SHA-256 checksum.'
-  [[ "$lock_sha" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
-
-  target="$OA_INSTALL_TEMP/$lock_asset"
-  mkdir -p "$OA_BUNDLE_CACHE"
-  cached="$OA_BUNDLE_CACHE/$lock_asset"
-
-  if [[ -f "$cached" ]]; then
-    cached_sum="$(sha256sum "$cached" | awk '{print $1}')"
-    if [[ "$cached_sum" == "$lock_sha" ]]; then
-      info "Reusing verified release bundle from cache" >&2
-      cp -f "$cached" "$target"
-      printf '%s' "$target"
-      return 0
-    fi
-    info "Cached bundle is stale; redownloading" >&2
-    rm -f "$cached"
-  fi
-
-  info "Downloading verified stable ARM64 release" >&2
-  if ! download_with_resume "$lock_url" "$target"; then
-    die 'Release download failed. Check the network connection or pass a local file with --bundle PATH.'
-  fi
-  actual_sum="$(sha256sum "$target" | awk '{print $1}')"
-  if [[ "$actual_sum" != "$lock_sha" ]]; then
-    die "Downloaded bundle checksum mismatch: expected $lock_sha, got $actual_sum"
-  fi
-  rm -f "$target.partial"
-  cp -f "$target" "$cached"
-  printf '%s' "$target"
-}
-
-expected_bundle_checksum() {
-  local bundle="$1" lock_format sidecar checksum
-  lock_format="$(release_lock_format)"
-  if [[ -n "$OA_BUNDLE" && "$lock_format" == "1" ]]; then
-    sidecar="$bundle.sha256"
-    [[ -f "$sidecar" ]] || die "Local bundles require the generated checksum sidecar: $sidecar"
-    read -r checksum _ < "$sidecar"
-  else
-    checksum="$(release_lock_field sha256 2>/dev/null || true)"
-    if [[ -z "$checksum" ]]; then
-      # Format=2 has no outer-payload hash pinned in the lock; the host bundle
-      # was already validated by download_host_bundle and the inner SHA256SUMS
-      # is checked below. Return empty so verify_and_extract_bundle skips the
-      # outer re-check.
-      printf ''
-      return 0
-    fi
-  fi
-  [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
-  printf '%s' "$checksum"
-}
-
 verify_and_extract_bundle() {
-  local bundle="$1" expected actual member manifest_version packages_file packages_checksum
-  expected="$(expected_bundle_checksum "$bundle")"
-  if [[ -n "$expected" ]]; then
-    actual="$(sha256sum "$bundle" | awk '{print $1}')"
-    [[ "$actual" == "$expected" ]] || die "Release checksum mismatch: expected $expected, got $actual"
-  fi
-
+  local bundle="$1" member manifest_version packages_file packages_checksum
   while IFS= read -r member; do
     case "$member" in
       /*|../*|*/../*|*/..) die "Unsafe path in release bundle: $member" ;;
@@ -221,17 +138,13 @@ verify_and_extract_bundle() {
     sha256sum -c SHA256SUMS
   )
 
-  # The legacy format=1 release contained a single manifest named BUNDLE-MANIFEST
-  # and an inner rootfs.tar.xz. The format=2 release splits host payload and
-  # guest rootfs: the manifest is still BUNDLE-MANIFEST, but the rootfs comes
-  # from a separate OCI pull handled by the caller.
   local manifest_file
   if [[ -f "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST" ]]; then
     manifest_file="$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST"
   else
     die 'Bundle manifest is missing.'
   fi
-  [[ "$(awk -F= '$1=="format" {print $2}' "$manifest_file")" =~ ^[12]$ ]] || \
+  [[ "$(awk -F= '$1=="format" {print $2}' "$manifest_file")" == 2 ]] || \
     die 'Unsupported bundle format.'
   [[ "$(awk -F= '$1=="architecture" {print $2}' "$manifest_file")" == aarch64 ]] || \
     die 'Release bundle is not ARM64.'
@@ -382,7 +295,7 @@ bundle_is_oci_tarball() {
 }
 
 perform_install() {
-  local lock_format bundle rootfs_target rootfs_install_cmd target_root
+  local bundle rootfs_target rootfs_install_cmd target_root
   target_root="${PREFIX:?}/var/lib/proot-distro/containers/$OA_CONTAINER/rootfs"
   [[ ! -e "$target_root" ]] || die "Target container already exists: $OA_CONTAINER"
   [[ ! -e "$OA_PREFIX" ]] || die "Host runtime path already exists: $OA_PREFIX"
@@ -398,53 +311,28 @@ perform_install() {
   mkdir -p "$OA_BUNDLE_CACHE"
   trap cleanup_install EXIT
 
-  lock_format="$(release_lock_format)"
-
   if [[ -n "$OA_BUNDLE" ]]; then
     bundle="$(cd -- "$(dirname -- "$OA_BUNDLE")" && pwd -P)/$(basename -- "$OA_BUNDLE")"
     [[ -f "$bundle" ]] || die "Local bundle does not exist: $bundle"
-    case "$lock_format" in
-      2)
-        bundle_is_oci_tarball "$bundle" \
-          || die "--bundle must point to an OCI image-layout tarball (containing oci-layout and index.json) for format=2 releases."
-        info "Using local OCI image archive: $bundle"
-        rootfs_install_cmd="$bundle"
-        bundle_host_only=""
-        ;;
-      *)
-        if bundle_is_oci_tarball "$bundle"; then
-          die "--bundle points to an OCI tarball, but the release lock is format=1. Use the bundled tarball from the v0.1.1 release or upgrade the release lock to format=2."
-        fi
-        bundle_host_only="$bundle"
-        rootfs_install_cmd=""
-        ;;
-    esac
+    bundle_is_oci_tarball "$bundle" \
+      || die "--bundle must point to an OCI image-layout tarball (containing oci-layout and index.json)."
+    info "Using local OCI image archive: $bundle"
+    rootfs_install_cmd="$bundle"
+    bundle_host_only=""
   else
     bundle_host_only=""
     rootfs_install_cmd=""
   fi
 
   if [[ -z "$bundle_host_only" ]]; then
-    case "$lock_format" in
-      2) bundle_host_only="$(download_host_bundle)" ;;
-      *) bundle_host_only="$(download_release_bundle)" ;;
-    esac
+    bundle_host_only="$(download_host_bundle)"
   fi
   verify_and_extract_bundle "$bundle_host_only"
 
   if [[ -z "$rootfs_install_cmd" ]]; then
-    case "$lock_format" in
-      2)
-        info "Pulling OCI rootfs from the registry"
-        rootfs_target="$(fetch_release_rootfs)"
-        rootfs_install_cmd="$rootfs_target"
-        ;;
-      *)
-        rootfs_target="$OA_INSTALL_TEMP/unpacked/rootfs.tar.xz"
-        [[ -f "$rootfs_target" ]] || die 'Release rootfs is missing.'
-        rootfs_install_cmd="$rootfs_target"
-        ;;
-    esac
+    info "Pulling OCI rootfs from the registry"
+    rootfs_target="$(fetch_release_rootfs)"
+    rootfs_install_cmd="$rootfs_target"
   fi
 
   info "Creating isolated PRoot container $OA_CONTAINER"

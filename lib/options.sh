@@ -39,7 +39,7 @@ Options:
   --keyboard LAYOUT       auto or an XKB layout such as us/fr (default: auto)
   --share MODE            none, termux, storage, or both (default: none)
   --audio / --no-audio    Enable or disable Android audio (default: enabled)
-  --bundle PATH           Use a local guest image (OCI tarball for format=2, bundle tar for format=1)
+  --bundle PATH           Use a local OCI image-layout tarball (containing oci-layout and index.json) instead of pulling from the registry
   --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
   --prefix PATH           Host runtime path
@@ -179,8 +179,8 @@ Resolved configuration:
   keyboard:     $OA_KEYBOARD
   sharing:      $OA_SHARE
   audio:        $OA_AUDIO
-  bundle:       ${OA_BUNDLE:-download verified release}
-  host bundle:  ${OA_HOST_BUNDLE:-download verified host payload}
+  bundle:       ${OA_BUNDLE:-download release image from registry}
+  host bundle:  ${OA_HOST_BUNDLE:-download host payload archive}
   container:    $OA_CONTAINER
   prefix:       $OA_PREFIX
   dry run:      $OA_DRY_RUN

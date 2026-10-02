@@ -16,16 +16,16 @@ build_install_plan() {
   if [[ -n "$OA_BUNDLE" ]]; then
     plan_add "Verify the local guest image and host payload: $OA_BUNDLE"
   else
-    plan_add "Download and verify the host payload archive and OCI image digest"
+    plan_add "Download the host payload archive and pull the OCI guest image by tag"
   fi
 
-  plan_add "Create a new isolated PRoot container named $OA_CONTAINER from the digest-pinned OCI release image"
+  plan_add "Create a new isolated PRoot container named $OA_CONTAINER from the OCI release image"
   plan_add "Install the pinned Omarchy runtime and Android compatibility packages inside the new container"
   plan_add "Install host start, stop, status, and Hyprland-control commands under $OA_PREFIX/bin"
   plan_add "Configure display=$OA_RESOLUTION refresh=$OA_REFRESH scale=$OA_SCALE keyboard=$OA_KEYBOARD gpu=$OA_GPU audio=$OA_AUDIO"
   plan_add "Configure optional host sharing mode: $OA_SHARE"
   plan_add "Run image, graphics-linkage, shell, browser, terminal, file-manager, and privacy smoke tests"
-  plan_add "Write an installation manifest containing versions and checksums only"
+  plan_add "Write an installation manifest with the resolved version and OCI reference"
 }
 
 build_remove_plan() {

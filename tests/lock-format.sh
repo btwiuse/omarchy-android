@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# format=1
+# format=1 is no longer supported
 cat > "$tmp/f1.lock" <<LOCK
 format=1
 version=0.1.0
@@ -25,10 +25,9 @@ sha256=$(printf '%064d' 0)
 LOCK
 OA_RELEASE_LOCK="$tmp/f1.lock"
 if validate_release_lock; then
-  echo "format=1: accepted"
-else
-  echo "format=1: REJECTED"; exit 1
+  echo "format=1: WRONGLY ACCEPTED"; exit 1
 fi
+echo "format=1: rejected"
 
 # format=2 (good)
 cat > "$tmp/f2.lock" <<LOCK

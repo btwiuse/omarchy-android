@@ -250,33 +250,23 @@ validate_release_lock() {
     return 1
   }
   format="$(read_lock_field "$OA_RELEASE_LOCK" format 2>/dev/null || true)"
-  case "$format" in
-    1)
-      for key in version tag asset url sha256; do
-        if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
-          printf '%s: missing required field %s for format=1\n' "$OA_RELEASE_LOCK" "$key" >&2
-          failures=$((failures + 1))
-        fi
-      done
-      ;;
-    2)
-      for key in version tag oci_reference host_bundle_asset host_bundle_url; do
-        if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
-          printf '%s: missing required field %s for format=2\n' "$OA_RELEASE_LOCK" "$key" >&2
-          failures=$((failures + 1))
-        fi
-      done
-      local oci_ref
-      oci_ref="$(read_lock_field "$OA_RELEASE_LOCK" oci_reference)"
-      [[ "$oci_ref" =~ ^[A-Za-z0-9._/-]+(:[0-9]+)?(/[A-Za-z0-9._/-]+)*:[A-Za-z0-9._-]+$ ]] || {
-        printf '%s: oci_reference is not a valid registry ref\n' "$OA_RELEASE_LOCK" >&2
-        failures=$((failures + 1))
-      }
-      ;;
-    *)
-      printf '%s: unsupported format=%s (expected 1 or 2)\n' "$OA_RELEASE_LOCK" "$format" >&2
+  if [[ "$format" != "2" ]]; then
+    printf '%s: unsupported format=%s (expected 2)\n' "$OA_RELEASE_LOCK" "$format" >&2
+    failures=$((failures + 1))
+    (( failures == 0 ))
+    return
+  fi
+  for key in version tag oci_reference host_bundle_asset host_bundle_url; do
+    if ! read_lock_field "$OA_RELEASE_LOCK" "$key" >/dev/null 2>&1; then
+      printf '%s: missing required field %s for format=2\n' "$OA_RELEASE_LOCK" "$key" >&2
       failures=$((failures + 1))
-      ;;
-  esac
+    fi
+  done
+  local oci_ref
+  oci_ref="$(read_lock_field "$OA_RELEASE_LOCK" oci_reference)"
+  [[ "$oci_ref" =~ ^[A-Za-z0-9._/-]+(:[0-9]+)?(/[A-Za-z0-9._/-]+)*:[A-Za-z0-9._-]+$ ]] || {
+    printf '%s: oci_reference is not a valid registry ref\n' "$OA_RELEASE_LOCK" >&2
+    failures=$((failures + 1))
+  }
   (( failures == 0 ))
 }
