@@ -72,13 +72,17 @@ RUN sed -i \
 # verify-patches.sh compute PROJECT_ROOT from their own location and
 # source lib/common.sh and lib/manifest.sh from there, so each directory
 # has to be copied with its name preserved (COPY on a directory copies
-# its CONTENTS, not the directory itself).
+# its CONTENTS, not the directory itself). runtime/guest ships the
+# curated Android guest templates (hyprland configs, mimeapps, dbus
+# services, etc.) that install-runtime.sh overlays onto /home/omarchy
+# during assemble-release-rootfs.sh.
 COPY manifest /opt/src/manifest/
 COPY patches /opt/src/patches/
 COPY builder /opt/src/builder/
 COPY scripts /opt/src/scripts/
 COPY licenses /opt/src/licenses/
 COPY lib /opt/src/lib/
+COPY runtime/guest /opt/src/runtime/guest/
 
 # Install the runtime package closure: chromium, quickshell, foot, dbus,
 # the curated desktop environment, plus the libraries Mesa, Hyprland and

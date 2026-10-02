@@ -40,7 +40,18 @@ useradd --create-home --uid 1000 -o --user-group --shell /bin/bash \
 install -d -m 0755 /usr/share/omarchy /opt/omarchy-android
 cp -a "$omarchy_source/." /usr/share/omarchy/
 rm -rf /usr/share/omarchy/.git
-cp -a "$graphics_root/." /opt/omarchy-android/
+# Graphics are staged into /opt/omarchy-android by the Dockerfile via
+# `COPY --from=precompile` before this script runs. The legacy
+# monolithic build assembled them in a temp dir and copied them in
+# here, but with the precompile pipeline the destination already
+# contains the compiled artifact, so the copy degenerates into
+# `cp -a X/. X/` and exits 1, silently aborting the whole script
+# before /home/omarchy is seeded. Skip when the source and the
+# destination are the same tree; the SHA256SUMS check above is the
+# authoritative verification.
+if [[ "$(cd -- "$graphics_root" && pwd -P)" != "$(cd -- /opt/omarchy-android && pwd -P)" ]]; then
+  cp -a "$graphics_root/." /opt/omarchy-android/
+fi
 
 command_list=/var/tmp/omarchy-release-commands.$$
 find /usr/share/omarchy/bin -maxdepth 1 -type f -perm -0100 -print0 > "$command_list"
