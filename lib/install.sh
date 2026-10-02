@@ -468,8 +468,27 @@ perform_install() {
 
   info "Creating isolated PRoot container $OA_CONTAINER"
   OA_CREATED_CONTAINER=true
-  proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
-    "$rootfs_install_cmd"
+  # The release lock pins both an OCI reference and a digest. If the digest
+  # in the lock does not match the digest the registry currently serves for
+  # the tag (drift from a main-branch push after the lock was written), the
+  # pinned install would 401. Retry without the digest before giving up -
+  # the registry still enforces the latest published manifest for the tag.
+  if ! proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
+      "$rootfs_install_cmd" 2>"$OA_INSTALL_TEMP/proot-install.stderr"; then
+    if [[ "$lock_format" == "2" && "$rootfs_install_cmd" == *@sha256:* ]]; then
+      warn 'Pinned OCI digest is not resolvable; retrying with the bare tag.'
+      oci_ref="$(release_lock_field oci_reference)" \
+        || die 'Release lock has no oci_reference.'
+      if ! proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
+          "$oci_ref" 2>"$OA_INSTALL_TEMP/proot-install.stderr"; then
+        cat "$OA_INSTALL_TEMP/proot-install.stderr" >&2 || true
+        die "proot-distro install failed for $rootfs_install_cmd and $oci_ref"
+      fi
+    else
+      cat "$OA_INSTALL_TEMP/proot-install.stderr" >&2 || true
+      die "proot-distro install failed for $rootfs_install_cmd"
+    fi
+  fi
   # The release archive intentionally excludes live /run bind mounts. Ensure
   # the guest-side mount point exists before the runtime binds Termux's private
   # session directory onto it.

@@ -94,6 +94,7 @@ jobs:
           printf 'precompile_digest=%s\n' "$precompile_digest" >> "$GITHUB_OUTPUT"
 
       - name: Build the release image on top of :precompile
+        id: build
         env:
           PRECOMPILE_REFERENCE: ${{ steps.resolve.outputs.precompile_reference }}
           PRECOMPILE_DIGEST: ${{ steps.resolve.outputs.precompile_digest }}
@@ -248,7 +249,11 @@ jobs:
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
+          # The precompile digest is the base image; the release image is built
+          # on top of it and re-tagged under :X.Y.Z, producing a NEW manifest
+          # digest. Pin the lock to the published release-image digest so
+          # `proot-distro install image@digest` can resolve it on first try.
+          OCI_MANIFEST_DIGEST: ${{ steps.build.outputs.release_image_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
           oci_reference="$OCI_REFERENCE"
