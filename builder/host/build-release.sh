@@ -111,7 +111,6 @@ version=$version
 architecture=aarch64
 oci_reference=$image_tag
 oci_repository=local
-oci_manifest_digest=$image_id
 base_repository=$base_repository
 base_tag=$base_tag
 base_manifest=$base_manifest
@@ -135,7 +134,6 @@ mkdir -p "$output_dir"
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
   -C "$host_temporary" -cJf "$host_bundle.partial" .
 mv "$host_bundle.partial" "$host_bundle"
-host_bundle_sha256="$(sha256sum "$host_bundle" | awk '{print $1}')"
 (
   cd "$output_dir"
   asset="$(basename -- "$host_bundle")"
@@ -149,18 +147,15 @@ version=$version
 architecture=aarch64
 oci_repository=local
 oci_reference=$image_tag
-oci_manifest_digest=$image_id
 oci_size_bytes=$(stat -c %s "$image_tar" 2>/dev/null || stat -f %z "$image_tar")
 base_repository=$base_repository
 base_tag=$base_tag
 base_manifest=$base_manifest
 base_layer=$base_layer
 host_bundle_asset=$(basename -- "$host_bundle")
-host_bundle_sha256=$host_bundle_sha256
 EOF
 chmod 0644 "$release_work/IMAGE-MANIFEST"
 
 printf 'Local OCI image:      %s\n' "$image_tar"
-printf 'Local image digest:   %s\n' "$image_id"
 printf 'Host payload bundle:  %s\n' "$host_bundle"
 printf 'Host payload checksum: %s\n' "$host_bundle.sha256"

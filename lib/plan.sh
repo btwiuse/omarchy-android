@@ -38,7 +38,7 @@ build_remove_plan() {
   fi
   plan_add "Remove the proot-distro container $OA_CONTAINER (drops every guest file under it)"
   plan_add "Delete the host runtime tree at $OA_PREFIX and its install-lock"
-  plan_add "Remove the cached host payload archive and OCI digest record for this release"
+  plan_add "Remove the cached host payload archive for this release"
 
   if [[ "$OA_KEEP_TERMUX_PACKAGES" == true ]]; then
     plan_add "Leave shared Termux packages installed (proot-distro, termux-x11, weston, pulseaudio, freedreno)"

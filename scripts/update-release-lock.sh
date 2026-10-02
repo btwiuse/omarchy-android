@@ -3,19 +3,15 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-version="${1:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
-repository="${2:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
-oci_reference="${3:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
-oci_manifest_digest="${4:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
-host_bundle_asset="${5:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
-host_bundle_sha256="${6:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE OCI_MANIFEST_DIGEST HOST_BUNDLE_ASSET HOST_BUNDLE_SHA256}"
+version="${1:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE HOST_BUNDLE_ASSET}"
+repository="${2:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE HOST_BUNDLE_ASSET}"
+oci_reference="${3:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE HOST_BUNDLE_ASSET}"
+host_bundle_asset="${4:?usage: update-release-lock.sh VERSION REPOSITORY OCI_REFERENCE HOST_BUNDLE_ASSET}"
 
 [[ "$version" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ &&
    "$repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ &&
-   "$oci_manifest_digest" =~ ^sha256:[0-9a-f]{64}$ &&
-   "$host_bundle_asset" == *.tar.xz &&
-   "$host_bundle_sha256" =~ ^[0-9a-f]{64}$ ]] || {
-  printf 'Invalid release-lock version, repository, digest, or host-bundle checksum.\n' >&2
+   "$host_bundle_asset" == *.tar.xz ]] || {
+  printf 'Invalid release-lock version, repository, or host-bundle asset.\n' >&2
   exit 2
 }
 
@@ -39,14 +35,12 @@ format=2
 version=$version
 tag=$tag
 oci_reference=$oci_reference
-oci_manifest_digest=$oci_manifest_digest
 host_bundle_asset=$host_bundle_asset
 host_bundle_url=$host_url
-host_bundle_sha256=$host_bundle_sha256
 EOF
 chmod 0644 "$temporary_lock"
 mv "$temporary_lock" "$ROOT/manifest/release.lock"
 trap - EXIT
 
-printf 'Installer release lock now targets %s@%s with host bundle %s.\n' \
-  "$oci_reference" "$oci_manifest_digest" "$host_bundle_asset"
+printf 'Installer release lock now targets %s with host bundle %s.\n' \
+  "$oci_reference" "$host_bundle_asset"

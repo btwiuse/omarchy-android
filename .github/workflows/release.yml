@@ -179,7 +179,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.resolve.outputs.version }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          OCI_MANIFEST_DIGEST: ${{ steps.precompile.outputs.precompile_digest }}
         run: |
           tag="v$VERSION"
           asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
@@ -191,7 +190,6 @@ jobs:
           printf 'format=2\nversion=%s\narchitecture=aarch64\n' "$VERSION" > image-output/IMAGE-MANIFEST
           printf 'oci_repository=%s\n' "${OCI_REFERENCE%:*}" >> image-output/IMAGE-MANIFEST
           printf 'oci_reference=%s\n' "$OCI_REFERENCE" >> image-output/IMAGE-MANIFEST
-          printf 'oci_manifest_digest=%s\n' "$OCI_MANIFEST_DIGEST" >> image-output/IMAGE-MANIFEST
           printf 'base_repository=%s\n' "$base_repository" >> image-output/IMAGE-MANIFEST
           printf 'base_tag=%s\n' "$base_tag" >> image-output/IMAGE-MANIFEST
           printf 'base_manifest=%s\n' "$base_manifest" >> image-output/IMAGE-MANIFEST
@@ -203,8 +201,6 @@ jobs:
 
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
           sidecar="$bundle.sha256"
-          bundle_sha256="$(sha256sum "$bundle")"
-          bundle_sha256="${bundle_sha256%% *}"
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             for path in "$bundle" "$sidecar"; do
@@ -223,7 +219,7 @@ jobs:
             cat > "$notes_file" <<EOF
           Precompiled Omarchy Android $tag for ARM64 phones and tablets.
 
-          The guest rootfs is published as an OCI image; proot-distro fetches, verifies, and unpacks it directly from GitHub Container Registry. The host payload archive above contains only the Android-side helpers (Termux Weston module, two native helpers, licenses). The installer verifies both before use.
+          The guest rootfs is published as an OCI image; proot-distro fetches and unpacks it directly from GitHub Container Registry. The host payload archive above contains only the Android-side helpers (Termux Weston module, two native helpers, licenses).
 
           Users do not compile Mesa, Hyprland, Weston, or Omarchy. Follow the README from the top, then run the installer.
 
@@ -238,10 +234,6 @@ jobs:
             rm "$notes_file"
           fi
 
-          remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq ".assets[] | select(.name == \"$asset\") | .digest")"
-          [[ "$remote_digest" == "sha256:$bundle_sha256" ]]
-          printf 'host_bundle_sha256=%s\n' "$bundle_sha256" >> "$GITHUB_ENV"
           printf 'host_bundle_asset=%s\n' "$asset" >> "$GITHUB_ENV"
 
       - name: Point the installer at the published release
@@ -249,15 +241,9 @@ jobs:
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
-          # The precompile digest is the base image; the release image is built
-          # on top of it and re-tagged under :X.Y.Z, producing a NEW manifest
-          # digest. Pin the lock to the published release-image digest so
-          # `proot-distro install image@digest` can resolve it on first try.
-          OCI_MANIFEST_DIGEST: ${{ steps.build.outputs.release_image_digest }}
           HOST_BUNDLE_ASSET: omarchy-android-host-aarch64-${{ steps.resolve.outputs.version }}.tar.xz
         run: |
           oci_reference="$OCI_REFERENCE"
-          oci_manifest_digest="$OCI_MANIFEST_DIGEST"
           host_bundle_asset="$HOST_BUNDLE_ASSET"
           default_branch="$(git config --get init.defaultBranch || echo main)"
           # We have an explicit fetch-depth: 0 checkout, so refs/remotes/origin/HEAD
@@ -272,9 +258,7 @@ jobs:
             "$VERSION" \
             "$GITHUB_REPOSITORY" \
             "$oci_reference" \
-            "$oci_manifest_digest" \
-            "$host_bundle_asset" \
-            "$host_bundle_sha256"
+            "$host_bundle_asset"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add manifest/release.lock

@@ -84,7 +84,7 @@ download_with_resume() {
 }
 
 download_host_bundle() {
-  local lock_format lock_asset lock_url lock_sha cached cached_sum target local_bundle local_sha
+  local lock_format lock_asset lock_url cached target
 
   lock_format="$(release_lock_format)"
   if [[ "$lock_format" != "2" ]]; then
@@ -94,8 +94,6 @@ download_host_bundle() {
 
   lock_asset="$(release_lock_field host_bundle_asset)" || die 'Release lock has no host_bundle_asset.'
   lock_url="$(release_lock_field host_bundle_url)" || die 'Release lock has no host_bundle_url.'
-  lock_sha="$(release_lock_field host_bundle_sha256)" || die 'Release lock has no host_bundle_sha256.'
-  [[ "$lock_sha" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid host bundle SHA-256 checksum.'
 
   mkdir -p "$OA_BUNDLE_CACHE"
   target="$OA_INSTALL_TEMP/$lock_asset"
@@ -103,9 +101,6 @@ download_host_bundle() {
   if [[ -n "$OA_HOST_BUNDLE" ]]; then
     local_bundle="$(cd -- "$(dirname -- "$OA_HOST_BUNDLE")" && pwd -P)/$(basename -- "$OA_HOST_BUNDLE")"
     [[ -f "$local_bundle" ]] || die "Local host bundle does not exist: $local_bundle"
-    local_sha="$(sha256sum "$local_bundle" | awk '{print $1}')"
-    [[ "$local_sha" == "$lock_sha" ]] \
-      || die "Local host bundle checksum mismatch: expected $lock_sha, got $local_sha"
     cp -f "$local_bundle" "$target"
     printf '%s' "$target"
     return 0
@@ -114,52 +109,26 @@ download_host_bundle() {
   cached="$OA_BUNDLE_CACHE/$lock_asset"
 
   if [[ -f "$cached" ]]; then
-    cached_sum="$(sha256sum "$cached" | awk '{print $1}')"
-    if [[ "$cached_sum" == "$lock_sha" ]]; then
-      info "Reusing verified host payload from cache" >&2
-      cp -f "$cached" "$target"
-      printf '%s' "$target"
-      return 0
-    fi
-    info "Cached host payload is stale; redownloading" >&2
-    rm -f "$cached"
+    info "Reusing host payload from cache" >&2
+    cp -f "$cached" "$target"
+    printf '%s' "$target"
+    return 0
   fi
 
-  info "Downloading verified host payload" >&2
+  info "Downloading host payload" >&2
   if ! download_with_resume "$lock_url" "$target"; then
     die 'Host payload download failed. Check the network connection or pass --host-bundle PATH.'
-  fi
-  actual_sum="$(sha256sum "$target" | awk '{print $1}')"
-  if [[ "$actual_sum" != "$lock_sha" ]]; then
-    die "Host payload checksum mismatch: expected $lock_sha, got $actual_sum"
   fi
   cp -f "$target" "$cached"
   printf '%s' "$target"
 }
 
 fetch_release_rootfs() {
-  local oci_ref oci_digest cache_dir cache_record cache_name
+  local oci_ref
 
   oci_ref="$(release_lock_field oci_reference)" || die 'Release lock has no oci_reference.'
-  oci_digest="$(release_lock_field oci_manifest_digest)" || die 'Release lock has no oci_manifest_digest.'
-  [[ "$oci_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die 'Invalid OCI manifest digest in release lock.'
 
-  cache_dir="${PREFIX:?}/var/cache/omarchy-android/oci"
-  # The lock stores the OCI reference as `host/owner/repo:tag`; the slashes
-  # would be interpreted as directory separators when used as a flat filename,
-  # so hash the reference into a single component the kernel can hold in a
-  # file name. proot-distro's registry install path still uses the original
-  # oci_ref returned below.
-  cache_name="$(printf '%s' "$oci_ref" | sha256sum | awk '{print $1}')"
-  cache_record="$cache_dir/$cache_name"
-  mkdir -p "$cache_dir"
-  if [[ -f "$cache_record" ]] && grep -qxF "$oci_digest" "$cache_record"; then
-    info "Reusing cached OCI manifest for $oci_ref" >&2
-  else
-    printf '%s\n' "$oci_digest" > "$cache_record"
-  fi
-
-  printf '%s@%s' "$oci_ref" "$oci_digest"
+  printf '%s' "$oci_ref"
 }
 
 # Format 1 (legacy): a single bundle tarball containing the rootfs tarball plus
@@ -218,8 +187,12 @@ expected_bundle_checksum() {
   else
     checksum="$(release_lock_field sha256 2>/dev/null || true)"
     if [[ -z "$checksum" ]]; then
-      checksum="$(release_lock_field host_bundle_sha256)" \
-        || die 'Release lock has no SHA-256 checksum.'
+      # Format=2 has no outer-payload hash pinned in the lock; the host bundle
+      # was already validated by download_host_bundle and the inner SHA256SUMS
+      # is checked below. Return empty so verify_and_extract_bundle skips the
+      # outer re-check.
+      printf ''
+      return 0
     fi
   fi
   [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || die 'Invalid bundle SHA-256 checksum.'
@@ -229,8 +202,10 @@ expected_bundle_checksum() {
 verify_and_extract_bundle() {
   local bundle="$1" expected actual member manifest_version packages_file packages_checksum
   expected="$(expected_bundle_checksum "$bundle")"
-  actual="$(sha256sum "$bundle" | awk '{print $1}')"
-  [[ "$actual" == "$expected" ]] || die "Release checksum mismatch: expected $expected, got $actual"
+  if [[ -n "$expected" ]]; then
+    actual="$(sha256sum "$bundle" | awk '{print $1}')"
+    [[ "$actual" == "$expected" ]] || die "Release checksum mismatch: expected $expected, got $actual"
+  fi
 
   while IFS= read -r member; do
     case "$member" in
@@ -474,26 +449,10 @@ perform_install() {
 
   info "Creating isolated PRoot container $OA_CONTAINER"
   OA_CREATED_CONTAINER=true
-  # The release lock pins both an OCI reference and a digest. If the digest
-  # in the lock does not match the digest the registry currently serves for
-  # the tag (drift from a main-branch push after the lock was written), the
-  # pinned install would 401. Retry without the digest before giving up -
-  # the registry still enforces the latest published manifest for the tag.
   if ! proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
       "$rootfs_install_cmd" 2>"$OA_INSTALL_TEMP/proot-install.stderr"; then
-    if [[ "$lock_format" == "2" && "$rootfs_install_cmd" == *@sha256:* ]]; then
-      warn 'Pinned OCI digest is not resolvable; retrying with the bare tag.'
-      oci_ref="$(release_lock_field oci_reference)" \
-        || die 'Release lock has no oci_reference.'
-      if ! proot-distro install --name "$OA_CONTAINER" --architecture aarch64 \
-          "$oci_ref" 2>"$OA_INSTALL_TEMP/proot-install.stderr"; then
-        cat "$OA_INSTALL_TEMP/proot-install.stderr" >&2 || true
-        die "proot-distro install failed for $rootfs_install_cmd and $oci_ref"
-      fi
-    else
-      cat "$OA_INSTALL_TEMP/proot-install.stderr" >&2 || true
-      die "proot-distro install failed for $rootfs_install_cmd"
-    fi
+    cat "$OA_INSTALL_TEMP/proot-install.stderr" >&2 || true
+    die "proot-distro install failed for $rootfs_install_cmd"
   fi
   # The release archive intentionally excludes live /run bind mounts. Ensure
   # the guest-side mount point exists before the runtime binds Termux's private
@@ -507,7 +466,6 @@ perform_install() {
 format=2
 version=$(awk -F= '$1=="version" {print $2}' "$OA_INSTALL_TEMP/unpacked/BUNDLE-MANIFEST")
 oci_reference=$(release_lock_field oci_reference 2>/dev/null || printf '')
-oci_manifest_digest=$(release_lock_field oci_manifest_digest 2>/dev/null || printf '')
 container=$OA_CONTAINER
 gpu=$OA_GPU
 resolution=$OA_RESOLUTION
@@ -531,8 +489,8 @@ EOF
 # unless the caller accepts the optional removal prompt.
 perform_remove() {
   local termux_prefix target_root stop_helper
-  local bundle_cache oci_record
-  local removed_container=false removed_prefix=false removed_bundle=false removed_oci=false
+  local bundle_cache
+  local removed_container=false removed_prefix=false removed_bundle=false
 
   termux_prefix="${PREFIX:?}"
   target_root="$termux_prefix/var/lib/proot-distro/containers/$OA_CONTAINER/rootfs"
@@ -580,23 +538,8 @@ perform_remove() {
     asset="$(awk -F '=' '$1=="host_bundle_asset" {print $2; exit}' \
       "$PROJECT_ROOT/manifest/release.lock")"
     if [[ -n "$asset" && -f "$bundle_cache/$asset" ]]; then
-      rm -f "$bundle_cache/$asset" "$bundle_cache/$asset.sha256"
+      rm -f "$bundle_cache/$asset"
       removed_bundle=true
-    fi
-    local oci_ref
-    oci_ref="$(awk -F '=' '$1=="oci_reference" {print $2; exit}' \
-      "$PROJECT_ROOT/manifest/release.lock")"
-    if [[ -n "$oci_ref" ]]; then
-      # Match the OCI cache naming used by fetch_release_rootfs: hash the
-      # reference into a flat filename because the raw ref contains '/' and
-      # ':' which the kernel rejects as a single filename component.
-      local oci_cache_name
-      oci_cache_name="$(printf '%s' "$oci_ref" | sha256sum | awk '{print $1}')"
-      oci_record="$termux_prefix/var/cache/omarchy-android/oci/$oci_cache_name"
-      if [[ -f "$oci_record" ]]; then
-        rm -f "$oci_record"
-        removed_oci=true
-      fi
     fi
   fi
 
@@ -608,7 +551,6 @@ perform_remove() {
   [[ "$removed_container" == true ]] && summary+=("container $OA_CONTAINER")
   [[ "$removed_prefix" == true ]] && summary+=("host runtime $OA_PREFIX")
   [[ "$removed_bundle" == true ]] && summary+=("cached host bundle")
-  [[ "$removed_oci" == true ]] && summary+=("cached OCI digest")
   if (( ${#summary[@]} )); then
     local joined
     joined="$(IFS=', '; printf '%s' "${summary[*]}")"

@@ -2,7 +2,5 @@ format=2
 version=0.0.13
 tag=v0.0.13
 oci_reference=ghcr.io/btwiuse/omarchy-android:0.0.13
-oci_manifest_digest=sha256:24e0fd2643218b48087455e7f8aa8040421ffbe39694969ed65779d1a5e24259
 host_bundle_asset=omarchy-android-host-aarch64-0.0.13.tar.xz
 host_bundle_url=https://github.com/btwiuse/omarchy-android/releases/download/v0.0.13/omarchy-android-host-aarch64-0.0.13.tar.xz
-host_bundle_sha256=b56c23d04850ad82ce4759cb206d04e9dff93bd6e49549dcdf17a7ccfcba78d5

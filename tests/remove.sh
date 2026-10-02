@@ -6,7 +6,7 @@
 #   - the option parser refuses to combine remove with --bundle/--host-bundle
 #   - the plan lists every artefact the remove will touch
 #   - perform_remove drops the container, the prefix, and the cached
-#     host-bundle + OCI digest record that match the current release.lock
+#     host-bundle that matches the current release.lock
 #   - perform_remove leaves other proot-distro containers alone
 #   - perform_remove refuses to do anything if no install is present
 #
@@ -35,8 +35,9 @@ current_oci_ref="$(awk -F '=' '$1=="oci_reference" {print $2; exit}' "$ROOT/mani
 echo "fake" > "$fake_termux/var/cache/omarchy-android/bundle/$current_asset"
 echo "fake" > "$fake_termux/var/cache/omarchy-android/bundle/some-other-bundle.tar.xz"
 mkdir -p "$fake_termux/var/cache/omarchy-android/oci"
-current_oci_cache_name="$(printf '%s' "$current_oci_ref" | sha256sum | awk '{print $1}')"
-printf 'sha256:deadbeef\n' > "$fake_termux/var/cache/omarchy-android/oci/$current_oci_cache_name"
+# The OCI digest record is no longer written by the current pipeline
+# (tag-only resolution); keep an unrelated file here to assert remove
+# does not touch the OCI cache at all.
 printf 'sha256:caffe\n' > "$fake_termux/var/cache/omarchy-android/oci/some-other-image:1.0"
 
 # Fake container rootfs + a host runtime tree
@@ -101,7 +102,7 @@ grep -F "Remove the proot-distro container omarchy-android" <<<"$dry_out" >/dev/
   || { echo "dry-run missing container step" >&2; echo "$dry_out" >&2; exit 1; }
 grep -F "Delete the host runtime tree at $fake_prefix" <<<"$dry_out" >/dev/null \
   || { echo "dry-run missing prefix step" >&2; echo "$dry_out" >&2; exit 1; }
-grep -F "Remove the cached host payload archive and OCI digest record for this release" <<<"$dry_out" >/dev/null \
+grep -F "Remove the cached host payload archive for this release" <<<"$dry_out" >/dev/null \
   || { echo "dry-run missing cache step" >&2; echo "$dry_out" >&2; exit 1; }
 grep -F "Offer to uninstall shared Termux packages" <<<"$dry_out" >/dev/null \
   || { echo "dry-run missing termux-package step" >&2; echo "$dry_out" >&2; exit 1; }
@@ -139,8 +140,6 @@ PATH="$fake_termux/bin:$PATH" \
   || { echo "prefix survived removal" >&2; ls "$fake_prefix" >&2; exit 1; }
 [[ ! -f "$fake_termux/var/cache/omarchy-android/bundle/$current_asset" ]] \
   || { echo "matching bundle survived removal" >&2; exit 1; }
-[[ ! -f "$fake_termux/var/cache/omarchy-android/oci/$current_oci_cache_name" ]] \
-  || { echo "matching OCI record survived removal" >&2; exit 1; }
 [[ -d "$fake_termux/var/lib/proot-distro/containers/keepme/rootfs" ]] \
   || { echo "other container was wiped" >&2; exit 1; }
 grep -F "untouched" "$fake_termux/var/lib/proot-distro/containers/keepme/rootfs/marker" >/dev/null \

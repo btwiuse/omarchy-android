@@ -152,15 +152,10 @@ artifacts_lock_sha256="$(sha256sum "$ROOT/manifest/artifacts.lock")"
 artifacts_lock_sha256="${artifacts_lock_sha256%% *}"
 packages_lock_sha256="$(sha256sum "$packages")"
 packages_lock_sha256="${packages_lock_sha256%% *}"
-oci_manifest_digest="$(awk -F= '$1=="oci_manifest_digest" {print $2}' "$image_manifest")"
 oci_reference="$(awk -F= '$1=="oci_reference" {print $2}' "$image_manifest")"
 oci_repository="$(awk -F= '$1=="oci_repository" {print $2}' "$image_manifest")"
 base_manifest="$(awk -F= '$1=="base_manifest" {print $2}' "$image_manifest")"
 base_layer="$(awk -F= '$1=="base_layer" {print $2}' "$image_manifest")"
-[[ "$oci_manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-  printf 'IMAGE-MANIFEST has no oci_manifest_digest.\n' >&2
-  exit 1
-}
 [[ -n "$oci_reference" && -n "$oci_repository" && -n "$base_manifest" && -n "$base_layer" ]] || {
   printf 'IMAGE-MANIFEST is missing one of: oci_reference, oci_repository, base_manifest, base_layer.\n' >&2
   exit 1
@@ -171,7 +166,6 @@ version=$version
 architecture=aarch64
 oci_reference=$oci_reference
 oci_repository=$oci_repository
-oci_manifest_digest=$oci_manifest_digest
 base_manifest=$base_manifest
 base_layer=$base_layer
 components_lock_sha256=$components_lock_sha256
@@ -210,4 +204,4 @@ chmod 0644 "$bundle" "$bundle.sha256"
 
 printf 'Host payload bundle:  %s\n' "$bundle"
 printf 'Host payload checksum: %s\n' "$bundle.sha256"
-printf 'OCI guest image:      %s@%s\n' "$oci_reference" "$oci_manifest_digest"
+printf 'OCI guest image:      %s\n' "$oci_reference"
