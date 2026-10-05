@@ -43,6 +43,10 @@ COPY licenses /opt/src/licenses/
 COPY lib /opt/src/lib/
 
 ENV OMARCHY_BUILD_JOBS=4
+# Pinned by build-from-local-forks.sh historically; exported here so the
+# per-phase build-graphics.sh RUN steps below see the same value across
+# separate `bash -c` invocations (each RUN is its own shell).
+ENV OMARCHY_GLAZE_REVISION=b518eec7a22e56ffa238b072c07f47efa7cea97f
 
 # Trust the upstream checkouts the graphics builder reads from.
 RUN git config --global --add safe.directory /opt/src/upstream/mesa \
