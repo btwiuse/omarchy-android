@@ -17,7 +17,10 @@ kgsl="$mesa/root/usr/lib/dri/kgsl_dri.so"
 hyprland_binary="$hyprland/bin/Hyprland"
 
 aquamarine_version="$(grep -oE '^Version:[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+$' "$aquamarine/lib/pkgconfig/aquamarine.pc" | awk '{print $2}')"
-aquamarine_soname="$(objdump -p "$aquamarine/lib/libaquamarine.so.$aquamarine_version" | awk '/SONAME/ {print $NF; exit}')"
+# awk exits early after the first SONAME match, which would propagate
+# SIGPIPE through objdump under set -o pipefail. Disable pipefail
+# briefly so the close-before-eof pipe break doesn't fail the capture.
+aquamarine_soname="$(set +o pipefail; objdump -p "$aquamarine/lib/libaquamarine.so.$aquamarine_version" | awk '/SONAME/ {print $NF; exit}')"
 aquamarine_library="$aquamarine/lib/libaquamarine.so.$aquamarine_version"
 
 for file in "$turnip" "$kgsl" "$aquamarine_library" "$hyprland_binary"; do
