@@ -2,7 +2,6 @@
 
 set -Eeuo pipefail
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 source_bundle="${1:?usage: package-host-bootstrap.sh SOURCE_BUNDLE OUTPUT_DIR VERSION SOURCE_SHA256}"
 output_dir="${2:?usage: package-host-bootstrap.sh SOURCE_BUNDLE OUTPUT_DIR VERSION SOURCE_SHA256}"
 version="${3:?usage: package-host-bootstrap.sh SOURCE_BUNDLE OUTPUT_DIR VERSION SOURCE_SHA256}"

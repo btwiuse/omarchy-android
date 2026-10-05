@@ -11,7 +11,6 @@ on:
       - builder/**
       - licenses/**
       - manifest/**
-      - patches/**
       - runtime/guest/**
       - scripts/**
       - lib/**
