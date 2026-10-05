@@ -31,6 +31,27 @@ for path in "$artifact_root" "$source_root" "$build_root"; do
   }
 done
 
+# Save stdout for high-level phase markers; redirect everything else to a
+# log under the build root so buildkit's bounded frontend pipe stays empty.
+mkdir -p "$build_root"
+fork_log="$build_root/fetch.log"
+: >"$fork_log"
+exec 3>&1
+exec >"$fork_log" 2>&1
+dump_log_tail() {
+  local exit_status=$1
+  if (( exit_status != 0 )); then
+    {
+      printf 'build-from-local-forks.sh failed (exit %d). Tail of %s:\n' \
+        "$exit_status" "$fork_log"
+      tail -n 200 "$fork_log"
+    } >&3
+  fi
+  exit "$exit_status"
+}
+trap 'dump_log_tail $?' EXIT
+phase() { printf '==> %s\n' "$*" >&3; }
+
 revision_for() {
   local component="$1"
   awk -F '|' -v component="$component" '$1 == component { print $4; found=1; exit } END { if (!found) exit 1 }' \
@@ -41,6 +62,7 @@ clone_at_revision() {
   local component="$1"
   local revision
   revision="$(revision_for "$component")"
+  printf 'Cloning %s at %s\n' "$component" "$revision" >&3
   git clone --no-hardlinks --no-checkout "$forks_root/$component" "$source_root/$component"
   git -C "$source_root/$component" checkout --detach "$revision"
 }
@@ -55,12 +77,14 @@ clone_at_revision hyprland
 # --recursive` materializes them at the commits Hyprland was built
 # against. The lock file previously duplicated those SHAs and rejected
 # any fork bump, so it has been removed: trust the fork's pinned state.
+printf 'Initializing Hyprland submodules\n' >&3
 git -C "$source_root/hyprland" submodule update --init --recursive
 # Glaze is fetched by Hyprland's CMakeLists.txt as FetchContent at tag
 # v7.2.0 (commit b518eec7a22e56ffa238b072c07f47efa7cea97f). build-graphics.sh
 # verifies the resolved FetchContent checkout matches this SHA.
 export OMARCHY_GLAZE_REVISION="b518eec7a22e56ffa238b072c07f47efa7cea97f"
 
+printf 'Launching graphics build\n' >&3
 "$project_root/builder/guest/build-graphics.sh" \
   "$source_root/mesa" \
   "$source_root/aquamarine" \
