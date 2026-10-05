@@ -114,8 +114,11 @@ RUN /opt/src/builder/guest/build-graphics.sh checksums \
 # staged artifact and its checksums are in place under /opt/omarchy-android.
 # /opt/src/upstream/omarchy is dropped too — the release stage fetches
 # it fresh from the canonical remote, so carrying it through the precompile
-# image only bloats layers with a stale checkout.
-RUN find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build /opt/src/upstream/omarchy -depth -delete \
-    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
+# image only bloats layers with a stale checkout. -ignore_readdir_race and
+# || true keep the cleanup step from failing when one of the dirs was
+# never materialised (e.g. omarchy is no longer fetched in this stage).
+RUN find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build /opt/src/upstream/omarchy -depth -delete -ignore_readdir_race \
+    && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log \
+    || true
 
 CMD ["/bin/bash"]
