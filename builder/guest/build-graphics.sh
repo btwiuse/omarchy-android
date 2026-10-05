@@ -47,6 +47,29 @@ jobs="${OMARCHY_BUILD_JOBS:-$(nproc)}"
 }
 (( jobs > 4 )) && jobs=4
 
+# Buildkit captures the container's stdout/stderr through bounded pipes.
+# Long install manifests (Hyprland emits 700+ "-- Installing:" lines) cause
+# the writer to receive SIGPIPE when the pipe is full and buildkit has not
+# yet drained it. With `set -o pipefail` that becomes exit 141 and the
+# whole RUN step is reported as failed even though the build itself
+# succeeded. `run_silent` sinks both streams to a per-call log file and only
+# emits a tail on non-zero exit, so the buildkit pipes stay empty while
+# the artifact is produced.
+run_silent_log_dir="$build_root/logs"
+mkdir -p "$run_silent_log_dir"
+run_silent() {
+  local label="$1"
+  shift
+  local log="$run_silent_log_dir/${label}.log"
+  if "$@" >"$log" 2>&1; then
+    return 0
+  fi
+  local status=$?
+  printf 'Command %s failed (exit %d). Tail of %s:\n' "$label" "$status" "$log" >&2
+  tail -n 200 "$log" >&2 || true
+  return "$status"
+}
+
 mesa_build="$build_root/mesa"
 mesa_stage="$artifact_root/mesa"
 mesa_build_pkgconfig="$build_root/mesa-build-pkgconfig"
@@ -61,7 +84,7 @@ hyprland_prefix="$install_root/hyprland"
 hyprland_destdir="$build_root/hyprland-destdir"
 mkdir -p "$build_root" "$mesa_stage/root"
 
-meson setup "$mesa_build" "$mesa_source" \
+run_silent mesa-setup meson setup "$mesa_build" "$mesa_source" \
   --prefix=/usr \
   -Dplatforms=x11,wayland \
   -Dgallium-drivers=freedreno,zink,virgl,llvmpipe \
@@ -80,8 +103,8 @@ meson setup "$mesa_build" "$mesa_source" \
   -Dgles1=disabled \
   -Dfreedreno-kmds=kgsl \
   -Dbuildtype=release
-meson compile -C "$mesa_build" -j "$jobs"
-DESTDIR="$mesa_stage/root" meson install -C "$mesa_build"
+run_silent mesa-compile meson compile -C "$mesa_build" -j "$jobs"
+run_silent mesa-install env DESTDIR="$mesa_stage/root" meson install -C "$mesa_build"
 
 # Build every consumer against the Mesa artifact we just produced, rather than
 # whichever Mesa happens to be installed in the disposable builder image.
@@ -118,11 +141,11 @@ with open(destination, "w", encoding="utf-8") as stream:
     stream.write("\n")
 PY
 
-cmake -S "$aquamarine_source" -B "$aquamarine_build" -G Ninja \
+run_silent aquamarine-configure cmake -S "$aquamarine_source" -B "$aquamarine_build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$aquamarine_prefix"
-cmake --build "$aquamarine_build" --parallel "$jobs"
-DESTDIR="$aquamarine_destdir" cmake --install "$aquamarine_build"
+run_silent aquamarine-compile cmake --build "$aquamarine_build" --parallel "$jobs"
+run_silent aquamarine-install env DESTDIR="$aquamarine_destdir" cmake --install "$aquamarine_build"
 mkdir -p "$aquamarine_stage"
 cp -a "$aquamarine_destdir$aquamarine_prefix/." "$aquamarine_stage/"
 
@@ -144,7 +167,7 @@ export LD_LIBRARY_PATH="$aquamarine_stage/lib:$LD_LIBRARY_PATH"
 export GIT_COMMIT_HASH
 GIT_COMMIT_HASH="$(git -C "$hyprland_source" rev-parse HEAD 2>/dev/null || printf unknown)"
 
-cmake -S "$hyprland_source" -B "$hyprland_build" -G Ninja \
+run_silent hyprland-configure cmake -S "$hyprland_source" -B "$hyprland_build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_DISABLE_FIND_PACKAGE_glaze=TRUE \
   -DPKG_CONFIG_EXECUTABLE="$script_dir/pkg-config-pinned-sources.sh" \
@@ -156,8 +179,8 @@ actual_glaze_revision="$(git -C "$hyprland_build/_deps/glaze-src" rev-parse HEAD
     "$OMARCHY_GLAZE_REVISION" "$actual_glaze_revision" >&2
   exit 1
 }
-cmake --build "$hyprland_build" --parallel "$jobs"
-DESTDIR="$hyprland_destdir" cmake --install "$hyprland_build"
+run_silent hyprland-compile cmake --build "$hyprland_build" --parallel "$jobs"
+run_silent hyprland-install env DESTDIR="$hyprland_destdir" cmake --install "$hyprland_build"
 mkdir -p "$hyprland_stage"
 cp -a "$hyprland_destdir$hyprland_prefix/." "$hyprland_stage/"
 
