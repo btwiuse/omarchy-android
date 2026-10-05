@@ -54,7 +54,7 @@ RUN git config --global --add safe.directory /opt/src/upstream/mesa \
 # compiler work, so it stays under a few seconds.
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
-      mesa aquamarine hyprland omarchy
+      mesa aquamarine hyprland
 
 # Materialize writable source trees and initialize Hyprland's submodules.
 # This is also a quick step.
@@ -108,9 +108,10 @@ RUN /opt/src/builder/guest/build-graphics.sh checksums \
 
 # Drop the source and build scratch dirs and pacman cache now that the
 # staged artifact and its checksums are in place under /opt/omarchy-android.
-# /opt/src/upstream/omarchy is kept so the release stage can copy the
-# shell tree.
-RUN find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
+# /opt/src/upstream/omarchy is dropped too — the release stage fetches
+# it fresh from the canonical remote, so carrying it through the precompile
+# image only bloats layers with a stale checkout.
+RUN find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build /opt/src/upstream/omarchy -depth -delete \
     && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
 
 CMD ["/bin/bash"]

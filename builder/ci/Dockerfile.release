@@ -89,7 +89,12 @@ RUN /tmp/builder/install-pkg-list.sh /tmp/builder/runtime-packages.txt
 # precompile image deliberately trims them so only the installable
 # graphics survive.
 COPY --from=precompile /opt/omarchy-android /opt/omarchy-android
-COPY --from=precompile /opt/src/upstream/omarchy /opt/src/upstream/omarchy
+
+# Pull the Omarchy shell fresh from its canonical remote (omarchy-android
+# mirrors upstream basecamp/omarchy with the Android patches applied).
+# Precompiling it in the toolchain image is unnecessary work — the shell
+# tree only feeds assemble-release-rootfs.sh's theme-generator and
+# license-text stamping, neither of which cares about compiler state.
 
 # Stage the curated Android host payload (native helpers, patched Weston
 # module, license texts) for assemble-bundle.sh to package into the
