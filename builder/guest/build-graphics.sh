@@ -197,14 +197,15 @@ phase_aquamarine() {
   # Hyprland discovers Aquamarine through pkg-config. Do not add its
   # final-prefix metadata directory to CMAKE_PREFIX_PATH here: CMake would
   # prioritize the shipped .pc file over the build-only staged view below.
-  export PKG_CONFIG_PATH="$aquamarine_build_pkgconfig:$PKG_CONFIG_PATH"
-  export LD_LIBRARY_PATH="$aquamarine_stage/lib:$LD_LIBRARY_PATH"
+  export PKG_CONFIG_PATH="$aquamarine_build_pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  export LD_LIBRARY_PATH="$aquamarine_stage/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 }
 
 phase_hyprland() {
   [[ -d "$aquamarine_stage/lib" ]] || { printf 'Aquamarine stage missing; run the aquamarine phase first.\n' >&3; exit 1; }
-  export PKG_CONFIG_PATH="$aquamarine_build_pkgconfig:$PKG_CONFIG_PATH"
-  export LD_LIBRARY_PATH="$aquamarine_stage/lib:$LD_LIBRARY_PATH"
+  export PKG_CONFIG_PATH="$aquamarine_build_pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  export LD_LIBRARY_PATH="$aquamarine_stage/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}"
   export GIT_COMMIT_HASH
   GIT_COMMIT_HASH="$(git -C "$hyprland_source" rev-parse HEAD 2>/dev/null || printf unknown)"
 
