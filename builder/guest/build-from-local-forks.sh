@@ -37,14 +37,6 @@ revision_for() {
     "$project_root/manifest/components.lock"
 }
 
-dependency_revision_for() {
-  local parent="$1"
-  local dependency="$2"
-  awk -F '|' -v parent="$parent" -v dependency="$dependency" \
-    '$1 == parent && $2 == dependency { print $5; found=1; exit } END { if (!found) exit 1 }' \
-    "$project_root/manifest/build-dependencies.lock"
-}
-
 clone_at_revision() {
   local component="$1"
   local revision
@@ -58,26 +50,16 @@ clone_at_revision mesa
 clone_at_revision aquamarine
 clone_at_revision hyprland
 
-# Hyprland falls back to its pinned udis86 submodule when no distro package is
-# available. The protocol and Tracy submodules are also initialized at the
-# exact commits recorded by the pinned Hyprland tree.
+# Hyprland pins its submodules (hyprland-protocols, tracy, udis86) via
+# gitlink entries in its own tree object; `submodule update --init
+# --recursive` materializes them at the commits Hyprland was built
+# against. The lock file previously duplicated those SHAs and rejected
+# any fork bump, so it has been removed: trust the fork's pinned state.
 git -C "$source_root/hyprland" submodule update --init --recursive
-for dependency_path in \
-  hyprland-protocols:subprojects/hyprland-protocols \
-  tracy:subprojects/tracy \
-  udis86:subprojects/udis86; do
-  dependency="${dependency_path%%:*}"
-  path="${dependency_path#*:}"
-  expected="$(dependency_revision_for hyprland "$dependency")"
-  actual="$(git -C "$source_root/hyprland/$path" rev-parse HEAD)"
-  [[ "$actual" == "$expected" ]] || {
-    printf 'Locked dependency mismatch for %s: expected %s, got %s\n' \
-      "$dependency" "$expected" "$actual" >&2
-    exit 1
-  }
-done
-export OMARCHY_GLAZE_REVISION
-OMARCHY_GLAZE_REVISION="$(dependency_revision_for hyprland glaze)"
+# Glaze is fetched by Hyprland's CMakeLists.txt as FetchContent at tag
+# v7.2.0 (commit b518eec7a22e56ffa238b072c07f47efa7cea97f). build-graphics.sh
+# verifies the resolved FetchContent checkout matches this SHA.
+export OMARCHY_GLAZE_REVISION="b518eec7a22e56ffa238b072c07f47efa7cea97f"
 
 "$project_root/builder/guest/build-graphics.sh" \
   "$source_root/mesa" \

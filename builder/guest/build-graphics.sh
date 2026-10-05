@@ -28,7 +28,7 @@ done
 [[ -f "$aquamarine_source/CMakeLists.txt" ]] || { printf 'Invalid Aquamarine source.\n' >&2; exit 1; }
 [[ -f "$hyprland_source/CMakeLists.txt" ]] || { printf 'Invalid Hyprland source.\n' >&2; exit 1; }
 [[ "${OMARCHY_GLAZE_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'OMARCHY_GLAZE_REVISION must be set from manifest/build-dependencies.lock.\n' >&2
+  printf 'OMARCHY_GLAZE_REVISION must be set by build-from-local-forks.sh.\n' >&2
   exit 2
 }
 [[ ! -e "$artifact_root" ]] || {

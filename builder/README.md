@@ -11,14 +11,13 @@ drivers, incorrect package prefixes, a misplaced Turnip ICD, and unexpected
 Aquamarine linkage before checksums are emitted.
 
 Both scripts refuse to reuse build directories. Source checkouts must already
-be at the revisions in `manifest/components.lock` with the reviewed patch
-series applied. Transitive custom-source dependencies are recorded separately in
-`manifest/build-dependencies.lock`; Hyprland's tree pins its Git submodules and
-its CMake file pins the Glaze release represented there. The orchestrated build
-verifies each resulting commit and forces the pinned Glaze fetch instead of
-accepting a coincidentally compatible system package. A scoped pkg-config
-wrapper likewise forces Hyprland's protocol XML to come from its pinned
-submodule while delegating every other lookup to Arch. Release assembly invokes
+be at the revisions in `manifest/components.lock`. Hyprland's tree pins its
+Git submodules; the orchestrated build verifies the Glaze FetchContent
+revision (currently `b518eec7a22e56ffa238b072c07f47efa7cea97f`, the commit
+Hyprland's CMakeLists.txt resolves `GLAZE_VERSION v7.2.0` to) and forces the
+pinned fetch instead of accepting a coincidentally compatible system package.
+A scoped pkg-config wrapper likewise forces Hyprland's protocol XML to come
+from its pinned submodule while delegating every other lookup to Arch. Release assembly invokes
 these scripts in a fresh builder;
 it never compiles inside or copies files from a user's existing Omarchy guest.
 
@@ -32,7 +31,7 @@ the builder refuses a mismatched base.
 Then run `host/build-guest-graphics.sh`. It mounts only this project, the
 separate local forks, and the artifact destination into an isolated PRoot
 session. The guest creates disposable writable source clones, checks out the
-locked upstream revisions, reapplies the reviewed patch series, initializes pinned
+locked upstream revisions, initializes pinned
 submodules, and performs a clean build. Its default output is ignored under
 `.work/guest-artifacts/graphics`.
 
@@ -55,7 +54,7 @@ recipe inside an isolated proot session driven by the Dockerfile.
 `.github/workflows/build-image.yml` performs a clean, native ARM64 rebuild on
 GitHub's `ubuntu-24.04-arm` runner. It verifies the locked OCI base image
 digest from `manifest/oci-images.lock`, fetches only the pinned source
-revisions, reapplies the reviewed patch series, rebuilds Mesa/Aquamarine/Hyprland
+revisions, rebuilds Mesa/Aquamarine/Hyprland
 inside `builder/ci/Dockerfile.release`, scrubs the result, pushes the OCI image
 to `ghcr.io`, and uploads these workflow artifacts:
 

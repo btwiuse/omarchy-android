@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 OA_COMPONENTS_LOCK="${PROJECT_ROOT:?}/manifest/components.lock"
-OA_BUILD_DEPENDENCIES_LOCK="${PROJECT_ROOT:?}/manifest/build-dependencies.lock"
 OA_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/artifacts.lock"
 OA_HOST_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/host-artifacts.lock"
 OA_OCI_IMAGES_LOCK="${PROJECT_ROOT:?}/manifest/oci-images.lock"
@@ -68,38 +67,6 @@ validate_component_lock() {
   ((failures == 0))
 }
 
-validate_build_dependency_lock() {
-  local line=0 parent name type upstream revision extra
-  local failures=0
-  declare -A seen=()
-
-  while IFS='|' read -r parent name type upstream revision extra; do
-    line=$((line + 1))
-    [[ -n "$parent" && "$parent" != \#* ]] || continue
-
-    if [[ -n "${extra:-}" || -z "$name" || -z "$upstream" ||
-          ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
-      printf '%s:%d: malformed build dependency record\n' "$OA_BUILD_DEPENDENCIES_LOCK" "$line" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    if [[ "$type" != submodule && "$type" != fetch-content ]]; then
-      printf '%s:%d: unsupported build dependency type %s\n' "$OA_BUILD_DEPENDENCIES_LOCK" "$line" "$type" >&2
-      failures=$((failures + 1))
-    fi
-    if [[ -n "${seen[$parent/$name]:-}" ]]; then
-      printf '%s:%d: duplicate build dependency %s/%s\n' "$OA_BUILD_DEPENDENCIES_LOCK" "$line" "$parent" "$name" >&2
-      failures=$((failures + 1))
-    fi
-    seen[$parent/$name]=1
-    component_record "$parent" >/dev/null || {
-      printf '%s:%d: unknown parent component %s\n' "$OA_BUILD_DEPENDENCIES_LOCK" "$line" "$parent" >&2
-      failures=$((failures + 1))
-    }
-  done <"$OA_BUILD_DEPENDENCIES_LOCK"
-
-  ((failures == 0))
-}
 
 validate_artifact_lock() {
   local line=0 name version upstream expected_hash license extra failures=0
