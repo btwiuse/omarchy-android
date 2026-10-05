@@ -49,21 +49,68 @@ RUN git config --global --add safe.directory /opt/src/upstream/mesa \
     && git config --global --add safe.directory /opt/src/upstream/aquamarine \
     && git config --global --add safe.directory /opt/src/upstream/hyprland
 
-# Compile Mesa+Aquamarine+Hyprland against the staged Mesa userspace. The
-# graphics artifact lands under /opt/omarchy-android and the source / build
-# scratch dirs are deleted before the stage ends. /opt/src/upstream/omarchy
-# is kept so the release stage can copy the shell tree.
+# Fetch the three component checkouts at their pinned revisions and lay
+# them down under /opt/src/upstream. This is a network-only step; no
+# compiler work, so it stays under a few seconds.
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
-      mesa aquamarine hyprland omarchy \
-    && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
-       /opt/src/builder/guest/build-from-local-forks.sh \
-         /opt/src \
-         /opt/src/upstream \
-         /opt/omarchy-android \
-         /var/tmp/omarchy-android-sources \
-         /var/tmp/omarchy-android-build \
-    && find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
+      mesa aquamarine hyprland omarchy
+
+# Materialize writable source trees and initialize Hyprland's submodules.
+# This is also a quick step.
+RUN OMARCHY_UPSTREAM_ROOT=/opt/src/upstream \
+    /opt/src/builder/guest/build-from-local-forks.sh \
+      /opt/src \
+      /opt/src/upstream \
+      /opt/omarchy-android \
+      /var/tmp/omarchy-android-sources \
+      /var/tmp/omarchy-android-build
+
+# Build each graphics component in its own RUN step. Each step sinks its
+# stdout and stderr to a per-phase log under the build root (see
+# build-graphics.sh) so buildkit's bounded frontend pipe is never
+# saturated by hundreds of thousands of CMake/meson progress lines. Layers
+# are cached independently, so a fix to one phase only forces that phase
+# to be re-executed on the next build.
+RUN OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
+    /opt/src/builder/guest/build-graphics.sh mesa \
+        /var/tmp/omarchy-android-sources/mesa \
+        /var/tmp/omarchy-android-sources/aquamarine \
+        /var/tmp/omarchy-android-sources/hyprland \
+        /opt/omarchy-android \
+        /var/tmp/omarchy-android-build
+RUN OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
+    /opt/src/builder/guest/build-graphics.sh aquamarine \
+        /var/tmp/omarchy-android-sources/mesa \
+        /var/tmp/omarchy-android-sources/aquamarine \
+        /var/tmp/omarchy-android-sources/hyprland \
+        /opt/omarchy-android \
+        /var/tmp/omarchy-android-build
+RUN OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
+    /opt/src/builder/guest/build-graphics.sh hyprland \
+        /var/tmp/omarchy-android-sources/mesa \
+        /var/tmp/omarchy-android-sources/aquamarine \
+        /var/tmp/omarchy-android-sources/hyprland \
+        /opt/omarchy-android \
+        /var/tmp/omarchy-android-build
+RUN /opt/src/builder/guest/build-graphics.sh audit \
+        /var/tmp/omarchy-android-sources/mesa \
+        /var/tmp/omarchy-android-sources/aquamarine \
+        /var/tmp/omarchy-android-sources/hyprland \
+        /opt/omarchy-android \
+        /var/tmp/omarchy-android-build
+RUN /opt/src/builder/guest/build-graphics.sh checksums \
+        /var/tmp/omarchy-android-sources/mesa \
+        /var/tmp/omarchy-android-sources/aquamarine \
+        /var/tmp/omarchy-android-sources/hyprland \
+        /opt/omarchy-android \
+        /var/tmp/omarchy-android-build
+
+# Drop the source and build scratch dirs and pacman cache now that the
+# staged artifact and its checksums are in place under /opt/omarchy-android.
+# /opt/src/upstream/omarchy is kept so the release stage can copy the
+# shell tree.
+RUN find /var/tmp/omarchy-android-sources /var/tmp/omarchy-android-build -depth -delete \
     && rm -rf /var/cache/pacman/pkg/* /var/log/pacman.log
 
 CMD ["/bin/bash"]
