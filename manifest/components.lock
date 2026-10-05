@@ -2,7 +2,7 @@
 omarchy|git|https://github.com/omarchy-android/omarchy.git|917b71aadadb15c2f9df428324300c73a9bb053c|MIT
 omarchy-pkgs|git|https://github.com/omacom-io/omarchy-pkgs.git|cf39173553ac777a0b35188195f6b5e6bb4e2f1b|MIT
 hyprland|git|https://github.com/omarchy-android/Hyprland.git|9face03601e11007b3b7f04c1bbb246a173b8159|BSD-3-Clause
-aquamarine|git|https://github.com/omarchy-android/aquamarine.git|696951b6e596295f042e9b72024fdcc7f8352c9f|BSD-3-Clause
+aquamarine|git|https://github.com/omarchy-android/aquamarine.git|7a092114b67232c0d4beb64bea2169cd4991c28e|BSD-3-Clause
 weston|git|https://github.com/omarchy-android/weston.git|766dcd0df26837a02e95e6cd22a39dc4e11db4cd|MIT
 termux-x11|git|https://github.com/omarchy-android/termux-x11.git|0e1ebb4c180f4e8e7a14a80f7cd0db8301791b6d|MIT
 mesa|git|https://github.com/omarchy-android/mesa-for-android-container.git|401198fbcf61f74bf7214e1be57f811fc74c8358|MIT AND BSD-3-Clause AND SGI-B-2.0
