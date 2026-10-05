@@ -62,16 +62,15 @@ RUN /tmp/builder/prepare-pacman-conf.sh \
     && pacman-key --populate archlinuxarm \
     && pacman -Syu --noconfirm
 
-# Project source for the assembly scripts. fetch-sources.sh and
-# verify-patches.sh compute PROJECT_ROOT from their own location and
-# source lib/common.sh and lib/manifest.sh from there, so each directory
-# has to be copied with its name preserved (COPY on a directory copies
-# its CONTENTS, not the directory itself). runtime/guest ships the
-# curated Android guest templates (hyprland configs, mimeapps, dbus
-# services, etc.) that install-runtime.sh overlays onto /home/omarchy
-# during assemble-release-rootfs.sh.
+# Project source for the assembly scripts. fetch-sources.sh computes
+# PROJECT_ROOT from its own location and sources lib/common.sh and
+# lib/manifest.sh from there, so each directory has to be copied with
+# its name preserved (COPY on a directory copies its CONTENTS, not the
+# directory itself). runtime/guest ships the curated Android guest
+# templates (hyprland configs, mimeapps, dbus services, etc.) that
+# install-runtime.sh overlays onto /home/omarchy during
+# assemble-release-rootfs.sh.
 COPY manifest /opt/src/manifest/
-COPY patches /opt/src/patches/
 COPY builder /opt/src/builder/
 COPY scripts /opt/src/scripts/
 COPY licenses /opt/src/licenses/
@@ -102,11 +101,9 @@ COPY host-payload-staging/ /opt/host-payload-staging/
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
 # run the default theme generator, scrub the result, and write the release
 # identity metadata.
-COPY builder/ci/apply-omarchy-patches.sh /tmp/builder/apply-omarchy-patches.sh
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       omarchy \
-    && /tmp/builder/apply-omarchy-patches.sh \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
          /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
     && rm -rf /opt/src /root/.ssh 2>/dev/null || true \

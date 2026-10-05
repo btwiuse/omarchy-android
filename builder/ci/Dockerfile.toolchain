@@ -33,11 +33,10 @@ RUN /tmp/builder/install-pkg-list.sh /tmp/builder/packages.txt
 # Project source for the build-time scripts and pinned manifest lock files.
 # Each directory is copied with a trailing slash so the directory names are
 # preserved (COPY on a directory copies its CONTENTS, not the directory).
-# lib/ is included so fetch-sources.sh and verify-patches.sh can source
-# lib/common.sh and lib/manifest.sh.
+# lib/ is included so fetch-sources.sh can source lib/common.sh and
+# lib/manifest.sh.
 WORKDIR /opt/src
 COPY manifest /opt/src/manifest/
-COPY patches /opt/src/patches/
 COPY builder /opt/src/builder/
 COPY scripts /opt/src/scripts/
 COPY licenses /opt/src/licenses/
@@ -53,11 +52,10 @@ RUN git config --global --add safe.directory /opt/src/upstream/mesa \
 # Compile Mesa+Aquamarine+Hyprland against the staged Mesa userspace. The
 # graphics artifact lands under /opt/omarchy-android and the source / build
 # scratch dirs are deleted before the stage ends. /opt/src/upstream/omarchy
-# is kept so the release stage can copy the patched shell tree.
+# is kept so the release stage can copy the shell tree.
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       mesa aquamarine hyprland omarchy \
-    && /tmp/builder/apply-omarchy-patches.sh \
     && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
        /opt/src/builder/guest/build-from-local-forks.sh \
          /opt/src \

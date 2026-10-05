@@ -68,14 +68,6 @@ for component in "${requested[@]}"; do
   git -C "$fork_repo" remote add upstream "$upstream"
   git -C "$fork_repo" checkout -b omarchy-android "$revision"
 
-  patch_dir="$PROJECT_ROOT/patches/$name"
-  if [[ "$name" == omarchy ]]; then
-    patch_dir="$PROJECT_ROOT/patches/omarchy-shell"
-  fi
-  if compgen -G "$patch_dir/*.patch" >/dev/null; then
-    git -C "$fork_repo" am "$patch_dir"/*.patch
-  fi
-
   success "Local fork ready: $fork_repo"
 done
 

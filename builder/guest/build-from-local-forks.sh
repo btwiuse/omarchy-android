@@ -58,17 +58,6 @@ clone_at_revision mesa
 clone_at_revision aquamarine
 clone_at_revision hyprland
 
-for component in aquamarine hyprland; do
-  series=("$project_root/patches/$component"/*.patch)
-  [[ -f "${series[0]}" ]] || {
-    printf 'No patch series found for %s.\n' "$component" >&2
-    exit 1
-  }
-  git -C "$source_root/$component" config user.name 'Omarchy Android Builder'
-  git -C "$source_root/$component" config user.email 'builder@omarchy-android.invalid'
-  git -C "$source_root/$component" am --committer-date-is-author-date "${series[@]}"
-done
-
 # Hyprland falls back to its pinned udis86 submodule when no distro package is
 # available. The protocol and Tracy submodules are also initialized at the
 # exact commits recorded by the pinned Hyprland tree.
