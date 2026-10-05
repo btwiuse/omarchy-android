@@ -54,8 +54,8 @@ validate_host_artifact_lock
 validate_oci_image_lock
 
 for package_inventory in \
-  "$ROOT/manifest/packages-aarch64-0.1.0.lock:555" \
-  "$ROOT/manifest/packages-aarch64-edge.lock:556"; do
+  "$ROOT/manifest/packages-aarch64-0.1.0.lock:557" \
+  "$ROOT/manifest/packages-aarch64-edge.lock:558"; do
   packages_lock="${package_inventory%:*}"
   expected_package_count="${package_inventory##*:}"
   [[ -f "$packages_lock" ]] || {

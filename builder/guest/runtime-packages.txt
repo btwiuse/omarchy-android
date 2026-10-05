@@ -67,6 +67,7 @@ libdisplay-info
 seatd
 hwdata
 libcanberra
+sdbus-cpp
 pixman
 libglvnd
 vulkan-icd-loader

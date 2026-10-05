@@ -63,6 +63,7 @@ libxkbcommon
 libei
 cairo
 libcanberra
+sdbus-cpp
 pango
 re2
 muparser
