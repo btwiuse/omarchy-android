@@ -14,8 +14,11 @@ aquamarine="$artifact_root/aquamarine"
 hyprland="$artifact_root/hyprland"
 turnip="$mesa/root/usr/lib/libvulkan_freedreno.so"
 kgsl="$mesa/root/usr/lib/dri/kgsl_dri.so"
-aquamarine_library="$aquamarine/lib/libaquamarine.so.0.14.0"
 hyprland_binary="$hyprland/bin/Hyprland"
+
+aquamarine_version="$(grep -oE '^Version:[[:space:]]+[0-9]+\.[0-9]+\.[0-9]+$' "$aquamarine/lib/pkgconfig/aquamarine.pc" | awk '{print $2}')"
+aquamarine_soname="$(objdump -p "$aquamarine/lib/libaquamarine.so.$aquamarine_version" | awk '/SONAME/ {print $NF; exit}')"
+aquamarine_library="$aquamarine/lib/libaquamarine.so.$aquamarine_version"
 
 for file in "$turnip" "$kgsl" "$aquamarine_library" "$hyprland_binary"; do
   [[ -e "$file" ]] || { printf 'Missing graphics artifact: %s\n' "$file" >&2; exit 1; }
@@ -55,7 +58,7 @@ grep -qF '[libgbm.so.1]' <<<"$aquamarine_dynamic" || {
   exit 1
 }
 hyprland_dynamic="$(readelf -d "$hyprland_binary")"
-grep -qF '[libaquamarine.so.13]' <<<"$hyprland_dynamic" || {
+grep -qF "[$aquamarine_soname]" <<<"$hyprland_dynamic" || {
   printf 'Hyprland is not linked to the expected Aquamarine ABI.\n' >&2
   exit 1
 }
