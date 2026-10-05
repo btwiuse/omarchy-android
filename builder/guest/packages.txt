@@ -62,6 +62,7 @@ xcb-util-renderutil
 libxkbcommon
 libei
 cairo
+libcanberra
 pango
 re2
 muparser

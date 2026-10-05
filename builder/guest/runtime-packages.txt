@@ -66,6 +66,7 @@ libinput
 libdisplay-info
 seatd
 hwdata
+libcanberra
 pixman
 libglvnd
 vulkan-icd-loader
