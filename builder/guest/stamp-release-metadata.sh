@@ -16,8 +16,6 @@ precompile_digest="$2"
   printf 'OMARCHY_ANDROID_IMAGE_DIGEST=%s\n' "$precompile_digest"
   printf 'OMARCHY_ANDROID_UPSTREAM_REVISION=%s\n' \
     "$(awk -F '|' '$1=="omarchy" {print $4}' /opt/src/manifest/components.lock)"
-  printf 'OMARCHY_ANDROID_PATCHES_LOCK_SHA256=%s\n' \
-    "$(sha256sum /opt/src/manifest/patches.lock | awk '{print $1}')"
   printf 'OMARCHY_ANDROID_PACKAGES_LOCK_SHA256=%s\n' \
     "$(sha256sum /opt/src/manifest/packages-aarch64-edge.lock | awk '{print $1}')"
   printf 'OMARCHY_ANDROID_HOST_BUNDLE_SHA256=%s\n' \

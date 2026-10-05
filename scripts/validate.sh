@@ -53,7 +53,6 @@ validate_build_dependency_lock
 validate_artifact_lock
 validate_host_artifact_lock
 validate_oci_image_lock
-validate_patch_lock
 
 for package_inventory in \
   "$ROOT/manifest/packages-aarch64-0.1.0.lock:555" \

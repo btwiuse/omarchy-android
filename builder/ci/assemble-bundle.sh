@@ -142,8 +142,6 @@ install -D -m 0644 "$packages" "$bundle_root/manifest/$(basename -- "$packages")
 
 components_lock_sha256="$(sha256sum "$ROOT/manifest/components.lock")"
 components_lock_sha256="${components_lock_sha256%% *}"
-patches_lock_sha256="$(sha256sum "$ROOT/manifest/patches.lock")"
-patches_lock_sha256="${patches_lock_sha256%% *}"
 artifacts_lock_sha256="$(sha256sum "$ROOT/manifest/artifacts.lock")"
 artifacts_lock_sha256="${artifacts_lock_sha256%% *}"
 packages_lock_sha256="$(sha256sum "$packages")"
@@ -164,7 +162,6 @@ oci_repository=$oci_repository
 base_manifest=$base_manifest
 base_layer=$base_layer
 components_lock_sha256=$components_lock_sha256
-patches_lock_sha256=$patches_lock_sha256
 artifacts_lock_sha256=$artifacts_lock_sha256
 packages_lock_sha256=$packages_lock_sha256
 host_artifact_sha256=$host_sha256

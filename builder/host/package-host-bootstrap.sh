@@ -118,15 +118,12 @@ done
 
 source_manifest_sha256="$(sha256sum "$payload_root/BUNDLE-MANIFEST")"
 source_manifest_sha256="${source_manifest_sha256%% *}"
-patches_lock_sha256="$(sha256sum "$ROOT/manifest/patches.lock")"
-patches_lock_sha256="${patches_lock_sha256%% *}"
 cat > "$payload_root/HOST-MANIFEST" <<EOF
 format=1
 version=$version
 architecture=aarch64
 source_bundle_sha256=$source_sha256
 source_bundle_manifest_sha256=$source_manifest_sha256
-patches_lock_sha256=$patches_lock_sha256
 EOF
 rm "$payload_root/BUNDLE-MANIFEST" "$payload_root/SHA256SUMS"
 chmod 0644 "$payload_root/HOST-MANIFEST"

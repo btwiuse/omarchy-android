@@ -101,7 +101,6 @@ for elf in \
   }
 done
 
-patches_lock_sha256="$(sha256sum "$ROOT/manifest/patches.lock" | awk '{print $1}')"
 components_lock_sha256="$(sha256sum "$ROOT/manifest/components.lock" | awk '{print $1}')"
 packages_lock_sha256="$(sha256sum "$packages_lock" | awk '{print $1}')"
 artifacts_lock_sha256="$(sha256sum "$ROOT/manifest/artifacts.lock" | awk '{print $1}')"
@@ -115,7 +114,6 @@ base_tag=$base_tag
 base_manifest=$base_manifest
 base_layer=$base_layer
 components_lock_sha256=$components_lock_sha256
-patches_lock_sha256=$patches_lock_sha256
 artifacts_lock_sha256=$artifacts_lock_sha256
 packages_lock_sha256=$packages_lock_sha256
 host_source_bundle_sha256=$image_tar_sha256

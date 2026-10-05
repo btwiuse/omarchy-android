@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 OA_COMPONENTS_LOCK="${PROJECT_ROOT:?}/manifest/components.lock"
-OA_PATCHES_LOCK="${PROJECT_ROOT:?}/manifest/patches.lock"
 OA_BUILD_DEPENDENCIES_LOCK="${PROJECT_ROOT:?}/manifest/build-dependencies.lock"
 OA_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/artifacts.lock"
 OA_HOST_ARTIFACTS_LOCK="${PROJECT_ROOT:?}/manifest/host-artifacts.lock"
@@ -177,60 +176,4 @@ validate_oci_image_lock() {
   done < "$OA_OCI_IMAGES_LOCK"
 
   (( failures == 0 ))
-}
-
-validate_patch_lock() {
-  local line=0 component base_revision patch_path expected_hash extra
-  local record locked_revision actual_hash discovered_patch relative_patch failures=0
-  declare -A seen=()
-
-  while IFS='|' read -r component base_revision patch_path expected_hash extra; do
-    line=$((line + 1))
-    [[ -n "$component" && "$component" != \#* ]] || continue
-
-    if [[ -n "${extra:-}" || ! "$expected_hash" =~ ^[0-9a-f]{64}$ ||
-          "$patch_path" != patches/*.patch ]]; then
-      printf '%s:%d: malformed patch record\n' "$OA_PATCHES_LOCK" "$line" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    if [[ -n "${seen[$patch_path]:-}" ]]; then
-      printf '%s:%d: duplicate patch %s\n' "$OA_PATCHES_LOCK" "$line" "$patch_path" >&2
-      failures=$((failures + 1))
-    fi
-    seen[$patch_path]=1
-
-    record="$(component_record "$component" || true)"
-    if [[ -z "$record" ]]; then
-      printf '%s:%d: unknown component %s\n' "$OA_PATCHES_LOCK" "$line" "$component" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    IFS='|' read -r _ _ _ locked_revision _ <<<"$record"
-    if [[ "$base_revision" != "$locked_revision" ]]; then
-      printf '%s:%d: patch base does not match component lock\n' "$OA_PATCHES_LOCK" "$line" >&2
-      failures=$((failures + 1))
-    fi
-    if [[ ! -f "$PROJECT_ROOT/$patch_path" ]]; then
-      printf '%s:%d: patch is missing: %s\n' "$OA_PATCHES_LOCK" "$line" "$patch_path" >&2
-      failures=$((failures + 1))
-      continue
-    fi
-    actual_hash="$(sha256sum "$PROJECT_ROOT/$patch_path")"
-    actual_hash="${actual_hash%% *}"
-    if [[ "$actual_hash" != "$expected_hash" ]]; then
-      printf '%s:%d: checksum mismatch for %s\n' "$OA_PATCHES_LOCK" "$line" "$patch_path" >&2
-      failures=$((failures + 1))
-    fi
-  done <"$OA_PATCHES_LOCK"
-
-  while IFS= read -r -d '' discovered_patch; do
-    relative_patch="${discovered_patch#"$PROJECT_ROOT"/}"
-    if [[ -z "${seen[$relative_patch]:-}" ]]; then
-      printf '%s: unlisted patch %s\n' "$OA_PATCHES_LOCK" "$relative_patch" >&2
-      failures=$((failures + 1))
-    fi
-  done < <(find "$PROJECT_ROOT/patches" -type f -name '*.patch' -print0)
-
-  ((failures == 0))
 }
