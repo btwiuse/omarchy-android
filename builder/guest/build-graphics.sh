@@ -58,12 +58,24 @@ for path in "$mesa_source" "$aquamarine_source" "$hyprland_source" "$artifact_ro
   }
 done
 [[ -f "$mesa_source/meson.build" ]] || { printf 'Invalid Mesa source.\n' >&2; exit 1; }
-[[ -f "$aquamarine_source/CMakeLists.txt" ]] || { printf 'Invalid Aquamarine source.\n' >&2; exit 1; }
-[[ -f "$hyprland_source/CMakeLists.txt" ]] || { printf 'Invalid Hyprland source.\n' >&2; exit 1; }
-[[ "${OMARCHY_GLAZE_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || {
-  printf 'OMARCHY_GLAZE_REVISION must be set.\n' >&2
-  exit 2
-}
+case "$phase" in
+  aquamarine|hyprland|audit|checksums)
+    [[ -f "$aquamarine_source/CMakeLists.txt" ]] || { printf 'Invalid Aquamarine source.\n' >&2; exit 1; }
+    ;;
+esac
+case "$phase" in
+  hyprland|audit|checksums)
+    [[ -f "$hyprland_source/CMakeLists.txt" ]] || { printf 'Invalid Hyprland source.\n' >&2; exit 1; }
+    ;;
+esac
+case "$phase" in
+  hyprland|audit|checksums)
+    [[ "${OMARCHY_GLAZE_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] || {
+      printf 'OMARCHY_GLAZE_REVISION must be set.\n' >&2
+      exit 2
+    }
+    ;;
+esac
 
 jobs="${OMARCHY_BUILD_JOBS:-$(nproc)}"
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || {
