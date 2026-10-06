@@ -63,18 +63,18 @@ docker build \
   --build-arg "OMARCHY_VERSION=$version" \
   --label "org.opencontainers.image.title=Omarchy Android" \
   --label "org.opencontainers.image.version=$version" \
-  --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}" \
+  --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY:-omarchy-android/omarchy-android}" \
   --file "$ROOT/builder/ci/Dockerfile.toolchain" \
   "$ROOT"
 image_built=1
 
 # Floating ':precompile' tag — every successful build overwrites it.
-precompile_reference="${OMARCHY_CI_PRECOMPILE_REFERENCE:-ghcr.io/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}:precompile}"
+precompile_reference="${OMARCHY_CI_PRECOMPILE_REFERENCE:-ghcr.io/${GITHUB_REPOSITORY:-omarchy-android/omarchy-android}:precompile}"
 docker tag "$image_tag" "$precompile_reference"
 docker push "$precompile_reference"
 
 # Pinned-per-build tag so consumers can pin a specific commit if needed.
-pinned_reference="ghcr.io/${GITHUB_REPOSITORY:-btwiuse/omarchy-android}:${version}"
+pinned_reference="ghcr.io/${GITHUB_REPOSITORY:-omarchy-android/omarchy-android}:${version}"
 docker tag "$image_tag" "$pinned_reference"
 docker push "$pinned_reference"
 

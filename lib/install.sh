@@ -53,7 +53,7 @@ install_host_dependencies() {
   done
 }
 
-OA_RELEASE_REPOSITORY="${OA_RELEASE_REPOSITORY:-btwiuse/omarchy-android}"
+OA_RELEASE_REPOSITORY="${OA_RELEASE_REPOSITORY:-omarchy-android/omarchy-android}"
 OA_RELEASE_TAG=''
 OA_RELEASE_VERSION=''
 OA_RELEASE_OCI_REFERENCE=''

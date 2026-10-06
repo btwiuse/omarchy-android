@@ -18,7 +18,7 @@ OA_ASSUME_YES=false
 OA_ALLOW_UNTESTED=false
 OA_ALLOW_PROCESS_LIMIT=false
 OA_KEEP_TERMUX_PACKAGES=false
-OA_RELEASE_REPOSITORY='btwiuse/omarchy-android'
+OA_RELEASE_REPOSITORY='omarchy-android/omarchy-android'
 
 print_help() {
   cat <<'EOF'
@@ -42,7 +42,7 @@ Options:
   --bundle PATH           Use a local OCI image-layout tarball (containing oci-layout and index.json) instead of pulling from the registry
   --host-bundle PATH      Use a local host payload tarball instead of downloading it
   --name NAME             PRoot container name (default: omarchy-android)
-  --repository OWNER/REPO  GitHub repository to pull releases from (default: btwiuse/omarchy-android)
+  --repository OWNER/REPO  GitHub repository to pull releases from (default: omarchy-android/omarchy-android)
   --keep-termux-packages  (remove) Do not offer to uninstall Termux packages that the installer added
   --yes                   Accept non-destructive prompts
   --allow-untested        Permit an untested Android version
