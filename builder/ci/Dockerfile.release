@@ -24,7 +24,7 @@
 # invoking this Dockerfile.
 
 ARG ARCHLINUXARM_BASE=ghcr.io/btwiuse/arch:base-aarch64
-ARG PRECOMPILE_REFERENCE=ghcr.io/btwiuse/omarchy-android:precompile
+ARG PRECOMPILE_REFERENCE=ghcr.io/omarchy-android/omarchy-android:precompile
 ARG VERSION=precompile
 ARG OCI_MANIFEST_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
 

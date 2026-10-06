@@ -210,6 +210,20 @@ jobs:
 
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$local_asset"
           sidecar="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$local_sidecar_asset"
+          # Stage the host bundle and its sha256 sidecar under their
+          # unversioned remote names so a plain `gh release upload`
+          # (which uses the basename of the path as the asset name)
+          # publishes them with the right filename. assemble-bundle.sh
+          # leaves them on disk under versioned filenames; the gh CLI's
+          # <file>#<name> syntax is a display label, not an asset
+          # filename rename, so the only portable way to rename is to
+          # copy the bytes to a new path before upload. The versioned
+          # local copies are kept because they are what assemble-bundle
+          # checksums are pinned against.
+          bundle_remote="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
+          sidecar_remote="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$sidecar_asset"
+          cp -f "$bundle" "$bundle_remote"
+          cp -f "$sidecar" "$sidecar_remote"
           packages_lock="image-output/packages-aarch64-$VERSION.lock"
           # The packages inventory is published under a version-independent
           # asset name so each release overwrites the previous one in place
@@ -244,16 +258,19 @@ jobs:
             # absent or whose digest matches the local copy. The host bundle
             # and sha256 sidecar share the same invariant as the captured
             # package inventory: never overwrite a remote asset whose
-            # digest differs from what we just built.
+            # digest differs from what we just built. The local-to-remote
+            # staging copy is what gets uploaded; the digest check uses
+            # the staged copy so the comparison is against the bytes that
+            # actually shipped.
             for pair in \
-              "$bundle|$asset" \
-              "$sidecar|$sidecar_asset"; do
+              "$bundle_remote|$asset" \
+              "$sidecar_remote|$sidecar_asset"; do
               local_path="${pair%|*}"
               remote_name="${pair#*|}"
               remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
                 --jq ".assets[] | select(.name == \"$remote_name\") | .digest")"
               if [[ -z "$remote_digest" ]]; then
-                gh release upload "$tag" "$local_path#$remote_name" --repo "$GITHUB_REPOSITORY"
+                gh release upload "$tag" "$local_path" --repo "$GITHUB_REPOSITORY"
               elif [[ "$remote_digest" != "sha256:$(sha256sum "$local_path" | awk '{print $1}')" ]]; then
                 printf 'Refusing to replace mismatched release asset %s.\n' "$remote_name" >&2
                 exit 1
@@ -283,15 +300,15 @@ jobs:
 
           This is an unofficial port; upstream project licenses and trademarks remain with their owners.
           EOF
-            # First-time release: each local file is uploaded under its
-            # unversioned remote name via the gh CLI <file>#<name> form.
-            # assemble-bundle.sh leaves the host bundle and its sha256
-            # sidecar on disk under versioned filenames; we just rename
-            # them at upload time.
+            # First-time release: the host bundle and its sha256 sidecar are
+            # already staged under their unversioned remote names above
+            # (see the cp lines just after bundle/sidecar are set), so
+            # upload them by path. The packages inventory has always
+            # lived at the unversioned name in this staging dir.
             upload_args=(
               "$tag"
-              "$bundle#$asset"
-              "$sidecar#$sidecar_asset"
+              "$bundle_remote"
+              "$sidecar_remote"
             )
             if [[ "$packages_lock" != "undefined" ]]; then
               upload_args+=("$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$packages_asset")
