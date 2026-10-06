@@ -75,7 +75,12 @@ resolve_release() {
     || die "Latest release URL is not a vX.Y.Z tag: $final"
   OA_RELEASE_TAG="${BASH_REMATCH[1]}"
   OA_RELEASE_VERSION="${OA_RELEASE_TAG#v}"
-  OA_RELEASE_HOST_BUNDLE_ASSET="omarchy-android-host-aarch64-${OA_RELEASE_VERSION}.tar.xz"
+  # The host payload archive is published under an unversioned asset
+  # name. The release tag in the URL already carries the version, so
+  # the GH release page can host a single asset name across every
+  # release. install.sh always pulls the bundle that matches the
+  # resolved version because the URL embeds OA_RELEASE_TAG.
+  OA_RELEASE_HOST_BUNDLE_ASSET="omarchy-android-host-aarch64.tar.xz"
   OA_RELEASE_HOST_BUNDLE_URL="https://github.com/${OA_RELEASE_REPOSITORY}/releases/download/${OA_RELEASE_TAG}/${OA_RELEASE_HOST_BUNDLE_ASSET}"
   # OA_OCI_TAG_OVERRIDE lets callers pull a non-versioned GHCR tag (e.g.
   # :main, :precompile, :precompile-<sha>) while keeping the host-bundle

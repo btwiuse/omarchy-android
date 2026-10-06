@@ -180,7 +180,17 @@ jobs:
           OCI_REFERENCE: ${{ steps.resolve.outputs.oci_reference }}
         run: |
           tag="v$VERSION"
-          asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
+          # The host payload bundle and its sha256 sidecar are published
+          # under version-independent asset names. The release tag in the
+          # URL already carries the version, so per-version filenames only
+          # added clutter to the GH release page and made older releases
+          # harder to find by hand. The local on-disk paths in
+          # .work/ci-release-$VERSION/ stay versioned so the build context
+          # remains self-describing.
+          asset="omarchy-android-host-aarch64.tar.xz"
+          sidecar_asset="omarchy-android-host-aarch64.tar.xz.sha256"
+          local_asset="omarchy-android-host-aarch64-$VERSION.tar.xz"
+          local_sidecar_asset="omarchy-android-host-aarch64-$VERSION.tar.xz.sha256"
           mkdir -p release
           base_repository="$(awk -F'|' '$1=="archlinuxarm" {print $2}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
           base_tag="$(awk -F'|' '$1=="archlinuxarm" {print $3}' "$GITHUB_WORKSPACE/manifest/oci-images.lock")"
@@ -198,8 +208,8 @@ jobs:
             "$GITHUB_WORKSPACE/image-output/" \
             "$GITHUB_WORKSPACE/.work/ci-release-$VERSION"
 
-          bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
-          sidecar="$bundle.sha256"
+          bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$local_asset"
+          sidecar="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$local_sidecar_asset"
           packages_lock="image-output/packages-aarch64-$VERSION.lock"
           # The packages inventory is published under a version-independent
           # asset name so each release overwrites the previous one in place
@@ -235,14 +245,17 @@ jobs:
             # and sha256 sidecar share the same invariant as the captured
             # package inventory: never overwrite a remote asset whose
             # digest differs from what we just built.
-            for path in "$bundle" "$sidecar"; do
-              name="${path##*/}"
+            for pair in \
+              "$bundle|$asset" \
+              "$sidecar|$sidecar_asset"; do
+              local_path="${pair%|*}"
+              remote_name="${pair#*|}"
               remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
-                --jq ".assets[] | select(.name == \"$name\") | .digest")"
+                --jq ".assets[] | select(.name == \"$remote_name\") | .digest")"
               if [[ -z "$remote_digest" ]]; then
-                gh release upload "$tag" "$path" --repo "$GITHUB_REPOSITORY"
-              elif [[ "$remote_digest" != "sha256:$(sha256sum "$path" | awk '{print $1}')" ]]; then
-                printf 'Refusing to replace mismatched release asset %s.\n' "$name" >&2
+                gh release upload "$tag" "$local_path#$remote_name" --repo "$GITHUB_REPOSITORY"
+              elif [[ "$remote_digest" != "sha256:$(sha256sum "$local_path" | awk '{print $1}')" ]]; then
+                printf 'Refusing to replace mismatched release asset %s.\n' "$remote_name" >&2
                 exit 1
               fi
             done
@@ -270,11 +283,20 @@ jobs:
 
           This is an unofficial port; upstream project licenses and trademarks remain with their owners.
           EOF
-            upload_args=("$tag" "$bundle" "$sidecar")
+            # First-time release: each local file is uploaded under its
+            # unversioned remote name via the gh CLI <file>#<name> form.
+            # assemble-bundle.sh leaves the host bundle and its sha256
+            # sidecar on disk under versioned filenames; we just rename
+            # them at upload time.
+            upload_args=(
+              "$tag"
+              "$bundle#$asset"
+              "$sidecar#$sidecar_asset"
+            )
             if [[ "$packages_lock" != "undefined" ]]; then
               upload_args+=("$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$packages_asset")
             fi
-            gh release create "$tag" "${upload_args[@]}" \
+            gh release create "${upload_args[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --latest \
