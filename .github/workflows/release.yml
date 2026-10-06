@@ -201,7 +201,16 @@ jobs:
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
           sidecar="$bundle.sha256"
           packages_lock="image-output/packages-aarch64-$VERSION.lock"
-          packages_asset="omarchy-android-packages-aarch64-$VERSION.lock"
+          # The packages inventory is published under a version-independent
+          # asset name so each release overwrites the previous one in place
+          # instead of accumulating a per-version asset name. Users diffing
+          # against upstream Omarchy Quattro's install/omarchy-base.packages
+          # always look at the latest release's inventory; the per-version
+          # filename added no value. assemble-bundle.sh still installs the
+          # versioned copy inside the host bundle at
+          # manifest/packages-aarch64-$VERSION.lock so version-locked
+          # archives remain self-describing.
+          packages_asset="omarchy-android-packages-aarch64.lock"
 
           # The captured pacman -Q inventory is what users diff against
           # omacom/omarchy's install/omarchy-base.packages and
@@ -255,7 +264,7 @@ jobs:
 
           The guest rootfs is published as an OCI image; proot-distro fetches and unpacks it directly from GitHub Container Registry. The host payload archive above contains only the Android-side helpers (Termux Weston module, two native helpers, licenses).
 
-          The \`omarchy-android-packages-aarch64-$VERSION.lock\` asset is the captured \`pacman -Q\` inventory of the published image. Compare it against the upstream Omarchy Quattro \`install/omarchy-base.packages\` and \`install/omarchy-other.packages\` lists to see exactly what the Android port includes or omits (kernel, ISO builder, laptop-specific hardware, etc. are intentionally absent).
+          The \`omarchy-android-packages-aarch64.lock\` asset is the captured \`pacman -Q\` inventory of the published image. Compare it against the upstream Omarchy Quattro \`install/omarchy-base.packages\` and \`install/omarchy-other.packages\` lists to see exactly what the Android port includes or omits (kernel, ISO builder, laptop-specific hardware, etc. are intentionally absent). The asset name is unversioned because each release overwrites the previous one in place; the versioned copy is still embedded inside the host bundle at \`manifest/packages-aarch64-$VERSION.lock\`.
 
           Users do not compile Mesa, Hyprland, Weston, or Omarchy. Follow the README from the top, then run the installer.
 
