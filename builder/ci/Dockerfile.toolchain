@@ -41,6 +41,11 @@ COPY builder /opt/src/builder/
 COPY scripts /opt/src/scripts/
 COPY licenses /opt/src/licenses/
 COPY lib /opt/src/lib/
+# Local Android/PRoot adaptation patches, layered on top of the upstream
+# components fetched by fetch-sources.sh. Each entry in patches.lock is
+# gated on the upstream HEAD matching the recorded base revision; a
+# stale patch against a different tree is skipped, not silently applied.
+COPY patches /opt/src/patches/
 
 ENV OMARCHY_BUILD_JOBS=4
 # Pinned Glaze revision; build-graphics.sh asserts the FetchContent
@@ -81,6 +86,7 @@ RUN /opt/src/scripts/fetch-sources.sh \
          /opt/omarchy-android \
          /var/tmp/omarchy-android-sources \
          /var/tmp/omarchy-android-build \
+    && /opt/src/builder/ci/apply-patches.sh /opt/src /var/tmp/omarchy-android-sources \
     && OMARCHY_BUILD_JOBS=${OMARCHY_BUILD_JOBS} \
        /opt/src/builder/guest/build-graphics.sh mesa \
          /var/tmp/omarchy-android-sources/mesa \

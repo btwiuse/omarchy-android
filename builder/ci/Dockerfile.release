@@ -107,6 +107,8 @@ COPY host-payload-staging/ /opt/host-payload-staging/
 # assemble-release-rootfs.sh RUN below so it can read /opt/src/manifest
 # before that path is scrubbed.
 COPY builder/guest/stamp-release-metadata.sh /opt/stamp-release-metadata.sh
+COPY builder/ci/apply-omarchy-patches.sh /tmp/builder/apply-omarchy-patches.sh
+COPY patches /opt/src/patches/
 
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
 # run the default theme generator, stamp the release metadata while the
@@ -114,6 +116,7 @@ COPY builder/guest/stamp-release-metadata.sh /opt/stamp-release-metadata.sh
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       omarchy \
+    && /tmp/builder/apply-omarchy-patches.sh \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
          /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
     && /opt/stamp-release-metadata.sh "$VERSION" "$OCI_MANIFEST_DIGEST" \

@@ -1,8 +1,8 @@
 # name|type|upstream|revision|license
-omarchy|git|https://github.com/omarchy-android/omarchy.git|917b71aadadb15c2f9df428324300c73a9bb053c|MIT
+omarchy|git|https://github.com/basecamp/omarchy.git|158e8cfb3a03f7b390e4213eaf15edcea0dfaa98|MIT
 omarchy-pkgs|git|https://github.com/omacom-io/omarchy-pkgs.git|cf39173553ac777a0b35188195f6b5e6bb4e2f1b|MIT
-hyprland|git|https://github.com/omarchy-android/Hyprland.git|8608c22f1b6bcfe0a8c7be6efce8bebdff85d3d2|BSD-3-Clause
-aquamarine|git|https://github.com/omarchy-android/aquamarine.git|52ea11f06dd492f34b3cc0b39a9c805beecafcff|BSD-3-Clause
+hyprland|git|https://github.com/hyprwm/Hyprland.git|5c9377c15f85c50648f35ca5a213754f95b93ca0|BSD-3-Clause
+aquamarine|git|https://github.com/hyprwm/aquamarine.git|a79fb21b2e2a82dd061a6d071802bcf38bd5c383|BSD-3-Clause
 weston|git|https://github.com/omarchy-android/weston.git|766dcd0df26837a02e95e6cd22a39dc4e11db4cd|MIT
 termux-x11|git|https://github.com/omarchy-android/termux-x11.git|0e1ebb4c180f4e8e7a14a80f7cd0db8301791b6d|MIT
 mesa|git|https://github.com/omarchy-android/mesa-for-android-container.git|401198fbcf61f74bf7214e1be57f811fc74c8358|MIT AND BSD-3-Clause AND SGI-B-2.0
