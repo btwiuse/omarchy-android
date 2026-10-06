@@ -6,7 +6,7 @@
 
 set -Eeuo pipefail
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DOCKERFILE="$ROOT/builder/ci/Dockerfile.release"
 
 [[ -f "$DOCKERFILE" ]] || { echo "missing $DOCKERFILE" >&2; exit 1; }
