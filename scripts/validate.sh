@@ -53,6 +53,11 @@ validate_artifact_lock
 validate_host_artifact_lock
 validate_oci_image_lock
 
+# The expected count is enforced to flag unintentional drift in the runtime
+# closure. The expected values are derived from the most recently produced
+# *.lock files and must be updated whenever the runtime closure legitimately
+# changes (a runtime package added or dropped, or a transitive dependency
+# rename / versioned split).
 for package_inventory in \
   "$ROOT/manifest/packages-aarch64-0.1.0.lock:557" \
   "$ROOT/manifest/packages-aarch64-edge.lock:558"; do
@@ -76,6 +81,35 @@ for package_inventory in \
       grep -Ev '^[a-z0-9@._+:-]+ [^[:space:]]+$' >/dev/null; then
     printf 'package inventory contains an invalid line: %s\n' "$packages_lock" >&2
     exit 1
+  fi
+  # The runtime package manifest must be a strict subset of the latest
+  # captured closure (packages-aarch64-edge.lock). The 0.1.0 lock is a
+  # frozen historical artifact captured before the runtime list reached
+  # its current shape; it is checked for shape and stability but not for
+  # closure superset. If something is absent from edge.lock, the
+  # disposable builder did not install it, or the captured lock is from a
+  # stale build. Either way, drift must be resolved before publishing a
+  # release.
+  if [[ "$packages_lock" == "$ROOT/manifest/packages-aarch64-edge.lock" ]]; then
+    runtime_manifest="$ROOT/builder/guest/runtime-packages.txt"
+    [[ -f "$runtime_manifest" ]] || {
+      printf 'missing runtime package manifest: %s\n' "$runtime_manifest" >&2
+      exit 1
+    }
+    mapfile -t runtime_pkgs < <(
+      sed -E -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$runtime_manifest" \
+        | awk '{print $1}' | LC_ALL=C sort -u
+    )
+    mapfile -t captured_pkgs < <(
+      grep -Ev '^[[:space:]]*(#|$)' "$packages_lock" | awk '{print $1}' | LC_ALL=C sort -u
+    )
+    missing="$(comm -23 \
+      <(printf '%s\n' "${runtime_pkgs[@]}") \
+      <(printf '%s\n' "${captured_pkgs[@]}"))"
+    if [[ -n "$missing" ]]; then
+      printf 'runtime packages missing from %s:\n%s\n' "$packages_lock" "$missing" >&2
+      exit 1
+    fi
   fi
 done
 

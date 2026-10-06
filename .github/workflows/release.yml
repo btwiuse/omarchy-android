@@ -200,8 +200,32 @@ jobs:
 
           bundle="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$asset"
           sidecar="$bundle.sha256"
+          packages_lock="image-output/packages-aarch64-$VERSION.lock"
+          packages_asset="omarchy-android-packages-aarch64-$VERSION.lock"
+
+          # The captured pacman -Q inventory is what users diff against
+          # omacom/omarchy's install/omarchy-base.packages and
+          # install/omarchy-other.packages on the quattro release. Without it,
+          # anyone auditing the release has no way to tell whether the
+          # release image drifted from upstream Omarchy without unpacking
+          # the image themselves. assemble-bundle.sh installs it inside
+          # the host bundle at manifest/packages-aarch64-$VERSION.lock
+          # already; we publish it as a separate release asset so it's
+          # discoverable from the GitHub release page directly.
+          if [[ -s "$packages_lock" ]]; then
+            cp "$packages_lock" "$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$packages_asset"
+          else
+            printf 'WARN: %s missing or empty; skipping %s release asset.\n' \
+              "$packages_lock" "$packages_asset" >&2
+            packages_lock=undefined
+          fi
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # When updating an existing release, only upload assets that are
+            # absent or whose digest matches the local copy. The host bundle
+            # and sha256 sidecar share the same invariant as the captured
+            # package inventory: never overwrite a remote asset whose
+            # digest differs from what we just built.
             for path in "$bundle" "$sidecar"; do
               name="${path##*/}"
               remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
@@ -213,6 +237,17 @@ jobs:
                 exit 1
               fi
             done
+            if [[ "$packages_lock" != "undefined" ]]; then
+              packages_path="$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$packages_asset"
+              remote_digest="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+                --jq ".assets[] | select(.name == \"$packages_asset\") | .digest")"
+              if [[ -z "$remote_digest" ]]; then
+                gh release upload "$tag" "$packages_path" --repo "$GITHUB_REPOSITORY"
+              elif [[ "$remote_digest" != "sha256:$(sha256sum "$packages_path" | awk '{print $1}')" ]]; then
+                printf 'Refusing to replace mismatched release asset %s.\n' "$packages_asset" >&2
+                exit 1
+              fi
+            fi
           else
             notes_file="$(mktemp)"
             cat > "$notes_file" <<EOF
@@ -220,11 +255,17 @@ jobs:
 
           The guest rootfs is published as an OCI image; proot-distro fetches and unpacks it directly from GitHub Container Registry. The host payload archive above contains only the Android-side helpers (Termux Weston module, two native helpers, licenses).
 
+          The \`omarchy-android-packages-aarch64-$VERSION.lock\` asset is the captured \`pacman -Q\` inventory of the published image. Compare it against the upstream Omarchy Quattro \`install/omarchy-base.packages\` and \`install/omarchy-other.packages\` lists to see exactly what the Android port includes or omits (kernel, ISO builder, laptop-specific hardware, etc. are intentionally absent).
+
           Users do not compile Mesa, Hyprland, Weston, or Omarchy. Follow the README from the top, then run the installer.
 
           This is an unofficial port; upstream project licenses and trademarks remain with their owners.
           EOF
-            gh release create "$tag" "$bundle" "$sidecar" \
+            upload_args=("$tag" "$bundle" "$sidecar")
+            if [[ "$packages_lock" != "undefined" ]]; then
+              upload_args+=("$GITHUB_WORKSPACE/.work/ci-release-$VERSION/$packages_asset")
+            fi
+            gh release create "$tag" "${upload_args[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --latest \

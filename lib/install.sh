@@ -75,9 +75,21 @@ resolve_release() {
     || die "Latest release URL is not a vX.Y.Z tag: $final"
   OA_RELEASE_TAG="${BASH_REMATCH[1]}"
   OA_RELEASE_VERSION="${OA_RELEASE_TAG#v}"
-  OA_RELEASE_OCI_REFERENCE="ghcr.io/${OA_RELEASE_REPOSITORY}:${OA_RELEASE_VERSION}"
   OA_RELEASE_HOST_BUNDLE_ASSET="omarchy-android-host-aarch64-${OA_RELEASE_VERSION}.tar.xz"
   OA_RELEASE_HOST_BUNDLE_URL="https://github.com/${OA_RELEASE_REPOSITORY}/releases/download/${OA_RELEASE_TAG}/${OA_RELEASE_HOST_BUNDLE_ASSET}"
+  # OA_OCI_TAG_OVERRIDE lets callers pull a non-versioned GHCR tag (e.g.
+  # :main, :precompile, :precompile-<sha>) while keeping the host-bundle
+  # download tied to the latest published vX.Y.Z release. Useful when
+  # testing a precompile build before it's promoted to a versioned tag
+  # and when the versioned tag is missing in the configured namespace
+  # (e.g. immediately after a repo transfer, before the next release
+  # runs under the new owner). Empty by default so default installs still
+  # track the versioned tag embedded in the release.
+  if [[ -n "${OA_OCI_TAG_OVERRIDE:-}" ]]; then
+    OA_RELEASE_OCI_REFERENCE="ghcr.io/${OA_RELEASE_REPOSITORY}:${OA_OCI_TAG_OVERRIDE}"
+  else
+    OA_RELEASE_OCI_REFERENCE="ghcr.io/${OA_RELEASE_REPOSITORY}:${OA_RELEASE_VERSION}"
+  fi
 }
 
 download_with_resume() {
