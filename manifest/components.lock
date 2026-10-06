@@ -1,7 +1,7 @@
 # name|type|upstream|revision|license
 omarchy|git|https://github.com/omarchy-android/omarchy.git|917b71aadadb15c2f9df428324300c73a9bb053c|MIT
 omarchy-pkgs|git|https://github.com/omacom-io/omarchy-pkgs.git|cf39173553ac777a0b35188195f6b5e6bb4e2f1b|MIT
-hyprland|git|https://github.com/omarchy-android/Hyprland.git|cc560ed99470504d63ff8890e245bc561ad883ff|BSD-3-Clause
+hyprland|git|https://github.com/omarchy-android/Hyprland.git|ec09189d0fbadaed8a6a28aa1013d0981bc934b4|BSD-3-Clause
 aquamarine|git|https://github.com/omarchy-android/aquamarine.git|4e71e5dca015d149b0c7af815f9f910ca7470525|BSD-3-Clause
 weston|git|https://github.com/omarchy-android/weston.git|766dcd0df26837a02e95e6cd22a39dc4e11db4cd|MIT
 termux-x11|git|https://github.com/omarchy-android/termux-x11.git|0e1ebb4c180f4e8e7a14a80f7cd0db8301791b6d|MIT
