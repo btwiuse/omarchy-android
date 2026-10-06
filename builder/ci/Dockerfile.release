@@ -103,22 +103,21 @@ COPY --from=precompile /opt/omarchy-android /opt/omarchy-android
 # linux/glibc guest rootfs.
 COPY host-payload-staging/ /opt/host-payload-staging/
 
+# Copy the release-metadata stamp script. It is invoked inside the
+# assemble-release-rootfs.sh RUN below so it can read /opt/src/manifest
+# before that path is scrubbed.
+COPY builder/guest/stamp-release-metadata.sh /opt/stamp-release-metadata.sh
+
 # Lay down the Omarchy shell, install the checksum-pinned Voxtype binary,
-# run the default theme generator, scrub the result, and write the release
-# identity metadata.
+# run the default theme generator, stamp the release metadata while the
+# build context is still on disk, scrub the result, and drop caches.
 RUN /opt/src/scripts/fetch-sources.sh \
       --destination /opt/src/upstream \
       omarchy \
     && /opt/src/builder/guest/assemble-release-rootfs.sh \
          /opt/src /opt/src/upstream/omarchy /opt/omarchy-android \
-    && rm -rf /opt/src /root/.ssh 2>/dev/null || true \
+    && /opt/stamp-release-metadata.sh "$VERSION" "$OCI_MANIFEST_DIGEST" \
+    && rm -rf /opt/src /opt/upstream /root/.ssh /opt/host-payload-staging /opt/stamp-release-metadata.sh 2>/dev/null || true \
     && find /var/cache/pacman/pkg -depth -delete 2>/dev/null || true
-
-# Re-stamp the release metadata with the version-specific values. The
-# actual awk/sha256sum work lives in builder/guest/stamp-release-metadata.sh
-# so that Dockerfile quoting does not corrupt the embedded awk.
-COPY builder/guest/stamp-release-metadata.sh /opt/stamp-release-metadata.sh
-RUN /opt/stamp-release-metadata.sh "$VERSION" "$OCI_MANIFEST_DIGEST" \
-    && rm -f /opt/stamp-release-metadata.sh
 
 CMD ["/bin/bash"]
